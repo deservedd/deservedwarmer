@@ -1,0 +1,3069 @@
+/**
+ * Account Warmer Browser Controller
+ * JavaScript implementation using Puppeteer for browser automation
+ */
+
+const puppeteer = require('puppeteer-core');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const axios = require('axios');
+const { v4: uuidv4 } = require('uuid');
+
+// Local imports
+const databaseService = require(path.join(__dirname, 'databaseService'));
+console.log('[browserController] __filename:', __filename);
+console.log('[browserController] databaseService keys:', Object.keys(databaseService || {}));
+const logger = require('./loggerService');
+const { sendNotificationToRenderer } = require('../../main');
+
+// AdsPower API defaults
+const ADSPOWER_API_URL = 'http://local.adspower.net:50325';
+
+// Search categories and queries for all websites
+const SEARCH_CATEGORIES = {
+  general: {
+    name: 'General',
+    queries: [
+      'headphones', 'water bottle', 'phone case', 'backpack',
+      'desk lamp', 'watch', 'sneakers', 'book',
+      'coffee mug', 'bluetooth speaker', 'laptop', 'smartphone',
+      'tablet', 'sunglasses', 'yoga mat', 'protein powder',
+      'board games', 'streaming services', 'video games', 'smart home devices',
+      'fitness tracker', 'smart watch', 'wireless headphones', 'gaming laptop',
+      'smart speaker', 'wireless earbuds', 'portable charger', 'home security camera',
+      'smart thermostat', 'drone', 'smartwatch', 'streaming device',
+      'external hard drive', 'e-reader', 'laptop stand', 'wireless charging pad',
+      'smart light bulb', 'network router', 'smart plug', 'portable projector',
+      'digital voice assistant', 'smart mirror', 'robotic vacuum', 'smart kitchen appliance',
+      'wireless gaming headset', 'home theater system', 'digital drawing tablet', 'smartphone gimbal',
+      'computer monitor', 'gaming chair', 'smart pet feeder', 'USB-C hub',
+      'smartphone accessory', 'tablet case', 'portable SSD', 'graphics card'
+    ]
+  },
+  tech: {
+    name: 'Technology',
+    queries: [
+      'new smartphone', 'gaming laptop', 'wireless headphones', 'smart home devices',
+      'bluetooth speakers', 'mechanical keyboard', 'ultrawide monitor', '4k projector',
+      'noise cancelling earbuds', 'gaming mouse', 'VR headset', 'smartwatch features',
+      'Smart speakers', 'Wireless earbuds', 'Fitness trackers', 'Portable chargers',
+      'Home security cameras', 'Smart thermostats', 'Gaming laptops', 'Bluetooth speakers',
+      'Virtual reality headsets', 'Drones', 'Noise-canceling headphones', 'Smartwatches',
+      'USB hubs', 'Streaming devices', 'External hard drives', '3D printers',
+      'E-readers', 'Phone cases', 'Laptop stands', 'Tech organizer bags',
+      'Smart home hubs', 'Action cameras', 'Digital photo frames', 'Wireless charging pads',
+      'Gaming accessories', 'Smart light bulbs', 'Home automation kits', 'Network routers',
+      'VR gaming accessories', 'Smart plugs', 'Fitness smart rings', 'Portable projectors',
+      'Digital voice assistants', 'Wearable health monitors', 'Smart mirrors', 'Electric scooters',
+      'Robotic vacuum cleaners', 'Smart kitchen appliances', 'Augmented reality glasses', 'Wireless gaming headsets',
+      'Home theater systems', 'Digital drawing tablets', 'Smartphone gimbals', 'Cloud storage subscriptions',
+      'Tech-themed apparel', 'Computer monitors', 'Gaming chairs', 'Smart pet feeders',
+      'USB-C hubs', 'Smartphone accessories', 'Tablet cases', 'Drone cameras',
+      'Portable SSDs', 'Graphics card', 'Laptop', 'MacBook',
+      'PC', 'Computer', 'PC gaming', 'Video editing',
+      '5090', '4090', 'i9', 'i7',
+      'NUC', 'ASUS', 'Lenovo', 'Samsung',
+      'EVGA', 'MSI', 'NVIDIA', 'Microsoft',
+      'Surface', 'Galaxy', 'PS5'
+    ]
+  },
+  fashion: {
+    name: 'Fashion & Clothing',
+    queries: [
+      'summer clothes', 'men\'s shoes', 'women\'s dresses', 'sustainable fashion',
+      'casual outfits', 'athletic wear', 'winter jackets', 'designer handbags',
+      'sunglasses', 'jewelry trends', 'business casual', 'running shoes',
+      'Trendy handbags', 'Stylish sunglasses', 'Comfortable sneakers', 'Elegant dresses',
+      'Casual t-shirts', 'Cozy sweaters', 'Fashionable jackets', 'Statement jewelry',
+      'Scarves and wraps', 'Swimwear sets', 'Athletic wear', 'Formal shoes',
+      'Vintage accessories', 'Fashionable belts', 'Custom graphic tees', 'Seasonal hats',
+      'Plus size swimwear', 'Maternity clothing', 'Kids\' fashion items', 'Fashion subscription boxes',
+      'Leather wallets', 'Fashionable backpacks', 'Loungewear sets', 'Graphic hoodies',
+      'Dress shirts', 'Chic skirts', 'Winter coats', 'Summer dresses',
+      'Fashionable activewear', 'Sustainable clothing brands', 'Footwear for all occasions', 'Fashionable face masks',
+      'Jewelry organizers', 'Fashionable phone cases', 'Stylish watches', 'Fashionable hair accessories',
+      'Trendy socks', 'Fashionable tights', 'Custom embroidered clothing', 'Fashionable raincoats',
+      'Seasonal accessories', 'Fashionable pajamas', 'Fashionable swim cover-ups', 'Fashionable outerwear',
+      'Fashionable gloves', 'Fashionable umbrellas'
+    ]
+  },
+  home: {
+    name: 'Home & Garden',
+    queries: [
+      'kitchen gadgets', 'indoor plants', 'home organization', 'furniture design',
+      'bedding sets', 'smart appliances', 'patio furniture', 'air purifiers',
+      'coffee makers', 'cookware sets', 'home office desk', 'gardening tools',
+      'Indoor herb garden kits', 'Decorative planters', 'Outdoor patio furniture', 'Smart light bulbs',
+      'Kitchen gadgets', 'Home organization bins', 'Essential oil diffusers', 'Garden tools',
+      'BBQ grills', 'Decorative throw pillows', 'Wall art and prints', 'Area rugs',
+      'Cookware sets', 'Outdoor fire pits', 'Bird feeders', 'Compost bins',
+      'Home fragrance candles', 'Plant care kits', 'Seasonal decorations', 'Home improvement tools',
+      'Smart garden systems', 'Indoor water fountains', 'Outdoor lighting', 'Garden furniture sets',
+      'Home cleaning supplies', 'Storage solutions', 'Home office furniture', 'Bedding sets',
+      'Kitchen storage containers', 'Wall shelves', 'Outdoor cushions', 'Fireplace accessories',
+      'Home barware', 'Pet supplies', 'Home safety products', 'Laundry room organizers',
+      'Bathroom accessories', 'Smart thermostats', 'Home decor accents', 'Outdoor games',
+      'Home workout equipment', 'Home entertainment systems', 'Home security systems', 'Decorative mirrors',
+      'Home improvement books', 'DIY project kits', 'Home maintenance tools'
+    ]
+  },
+  health: {
+    name: 'Health & Fitness',
+    queries: [
+      'fitness equipment', 'yoga mat', 'vitamins', 'protein powder',
+      'running gear', 'massage gun', 'fitness tracker', 'home gym',
+      'workout clothes', 'resistance bands', 'meditation', 'healthy recipes',
+      'Yoga mats', 'Resistance bands', 'Dumbbell sets', 'Meal prep containers',
+      'Protein powder', 'Fitness journals', 'Running shoes', 'Jump ropes',
+      'Foam rollers', 'Health and wellness books', 'Meditation cushions', 'Smart scales',
+      'Fitness trackers', 'Essential oils', 'Massage guns', 'Healthy snack boxes',
+      'Water bottles with infusers', 'Gym bags', 'Pilates equipment', 'Online fitness class subscriptions',
+      'Fitness DVDs', 'Athletic socks', 'Sports bras', 'Fitness apparel',
+      'Healthy cookbooks', 'Fitness challenges', 'Personal training sessions', 'Health supplements',
+      'Outdoor fitness gear', 'Bicycle accessories', 'Fitness apps', 'Smart water bottles',
+      'Home gym equipment', 'Wellness journals', 'Fitness trackers for kids', 'Healthy meal delivery services',
+      'Fitness retreats', 'Yoga blocks', 'Sports nutrition products', 'Fitness motivation posters',
+      'Health monitoring devices', 'Fitness games', 'Wellness subscription boxes', 'Healthy lifestyle guides',
+      'Fitness coaching services', 'Fitness-themed gifts', 'Fitness workshops'
+    ]
+  },
+  entertainment: {
+    name: 'Entertainment',
+    queries: [
+      'streaming services', 'video games', 'board games', 'bestselling books',
+      'movie releases', 'music albums', 'concert tickets', 'podcast recommendations',
+      'TV shows', 'digital art', 'photography tips', 'outdoor activities',
+      'Board games', 'Movie night bundles', 'Concert tickets', 'Streaming service gift cards',
+      'Book series box sets', 'Puzzle sets', 'Video game consoles', 'Music vinyl records',
+      'Art supplies for creative projects', 'Subscription boxes for snacks or books', 'Tickets to local theater productions', 'Funko Pop! collectibles',
+      'Virtual reality games', 'DIY craft kits', 'Family activity books', 'Outdoor movie projector',
+      'Karaoke machines', 'Escape room experiences', 'Gift cards for entertainment venues', 'Personalized photo books',
+      'Music festival tickets', 'Board game expansions', 'Art prints', 'Online gaming subscriptions',
+      'Movie posters', 'Concert merchandise', 'Themed party supplies', 'Trivia games',
+      'Video game accessories', 'Gift cards for bookstores', 'Family board game nights', 'Craft beer or wine tasting experiences',
+      'Cooking class experiences', 'Live comedy show tickets', 'Escape room gift vouchers', 'Virtual concert experiences',
+      'Art classes', 'Movie streaming subscriptions', 'Gift cards for local attractions', 'Family-friendly activity kits',
+      'Themed puzzle books', 'Gift cards for gaming platforms', 'DIY movie night kits', 'Gift cards for art supplies',
+      'Gift cards for music lessons'
+    ]
+  }
+};
+
+// --- REGION SITE MAP (to be filled in by user) ---
+const REGION_INITIAL_SITES = {
+  uk: [
+    'https://www.google.co.uk',
+    'https://www.bbc.co.uk',
+    'https://www.youtube.com',
+    'https://www.amazon.co.uk',
+    'https://www.ebay.co.uk',
+    'https://www.facebook.com',
+    'https://www.instagram.com',
+    'https://www.wikipedia.org',
+    'https://www.twitter.com',
+    'https://www.tiktok.com',
+    'https://www.reddit.com',
+    'https://www.linkedin.com',
+    'https://www.theguardian.com',
+    'https://www.dailymail.co.uk',
+    'https://www.telegraph.co.uk',
+    'https://www.independent.co.uk',
+    'https://www.thesun.co.uk',
+    'https://www.nhs.uk',
+    'https://www.gov.uk',
+    'https://www.skysports.com',
+    'https://www.bbc.com',
+    'https://www.itv.com',
+    'https://www.channel4.com',
+    'https://www.mirror.co.uk',
+    'https://www.express.co.uk',
+    'https://www.sky.com',
+    'https://www.skyscanner.net',
+    'https://www.metro.co.uk',
+    'https://www.tesco.com',
+    'https://www.sainsburys.co.uk',
+    'https://www.asda.com',
+    'https://www.argos.co.uk',
+    'https://www.currys.co.uk',
+    'https://www.marksandspencer.com',
+    'https://www.nationwide.co.uk',
+    'https://www.barclays.co.uk',
+    'https://www.lloydsbank.com',
+    'https://www.santander.co.uk',
+    'https://www.halifax.co.uk',
+    'https://www.hsbc.co.uk',
+    'https://www.booking.com',
+    'https://www.tripadvisor.co.uk',
+    'https://www.rightmove.co.uk',
+    'https://www.autotrader.co.uk',
+    'https://www.samsung.com/uk'
+  ],
+  us: [
+    'https://www.google.com',
+    'https://www.youtube.com',
+    'https://www.facebook.com',
+    'https://www.amazon.com',
+    'https://www.reddit.com',
+    'https://www.wikipedia.org',
+    'https://www.instagram.com',
+    'https://www.twitter.com',
+    'https://www.yahoo.com',
+    'https://www.netflix.com',
+    'https://www.linkedin.com',
+    'https://www.ebay.com',
+    'https://www.twitch.tv',
+    'https://www.cnn.com',
+    'https://www.nytimes.com',
+    'https://www.pinterest.com',
+    'https://www.msn.com',
+    'https://www.walmart.com',
+    'https://www.espn.com',
+    'https://www.tiktok.com',
+    'https://www.apple.com',
+    'https://www.bing.com',
+    'https://www.hulu.com',
+    'https://www.imdb.com',
+    'https://www.bestbuy.com',
+    'https://www.target.com',
+    'https://www.chase.com',
+    'https://www.bankofamerica.com',
+    'https://www.wellsfargo.com',
+    'https://www.roblox.com',
+    'https://www.etsy.com',
+    'https://zoom.us',
+    'https://www.duckduckgo.com',
+    'https://www.quora.com',
+    'https://www.indeed.com',
+    'https://mail.google.com',
+    'https://www.outlook.com',
+    'https://www.usps.com',
+    'https://www.craigslist.org',
+    'https://stackoverflow.com',
+    'https://www.samsung.com/us'
+  ],
+  au: [
+    'https://www.google.com.au',
+    'https://www.facebook.com',
+    'https://www.amazon.com.au',
+    'https://www.news.com.au',
+    'https://www.smh.com.au',
+    'https://www.abc.net.au',
+    'https://www.realestate.com.au',
+    'https://www.domain.com.au',
+    'https://www.seek.com.au',
+    'https://www.airtasker.com',
+    'https://www.broadsheet.com.au',
+    'https://www.couriermail.com.au',
+    'https://www.heraldsun.com.au',
+    'https://www.theage.com.au',
+    'https://www.ozbargain.com.au',
+    'https://www.woolworths.com.au',
+    'https://www.coles.com.au',
+    'https://www.qantas.com',
+    'https://www.auspost.com.au',
+    'https://www.iboats.com.au',
+    'https://www.racq.com.au',
+    'https://www.tripadvisor.com.au',
+    'https://www.bunnings.com.au',
+    'https://www.harveynorman.com.au',
+    'https://www.myhome.com.au',
+    'https://www.abc.net.au/radionational',
+    'https://www.gumtree.com.au',
+    'https://www.macquarie.com.au',
+    'https://www.telstra.com.au',
+    'https://www.optus.com.au',
+    'https://www.commonwealthbank.com.au',
+    'https://www.nab.com.au',
+    'https://www.westpac.com.au',
+    'https://www.ato.gov.au',
+    'https://www.sbs.com.au',
+    'https://www.9news.com.au',
+    'https://www.7news.com.au',
+    'https://www.skynews.com.au',
+    'https://www.fairfax.com.au',
+    'https://www.newsletters.com.au',
+    'https://www.ozmovies.com.au',
+    'https://www.trip.com.au',
+    'https://www.samsung.com/au'
+  ],
+  ca: [
+    'https://www.google.ca',
+    'https://www.youtube.com',
+    'https://www.amazon.ca',
+    'https://www.facebook.com',
+    'https://www.instagram.com',
+    'https://www.wikipedia.org',
+    'https://www.reddit.com',
+    'https://www.twitter.com',
+    'https://www.tiktok.com',
+    'https://www.cbc.ca',
+    'https://www.ctvnews.ca',
+    'https://www.globalnews.ca',
+    'https://www.linkedin.com',
+    'https://www.thestar.com',
+    'https://www.theglobeandmail.com',
+    'https://www.nationalpost.com',
+    'https://www.bell.ca',
+    'https://www.rogers.com',
+    'https://www.telus.com',
+    'https://www.canada.ca',
+    'https://www.cic.gc.ca',
+    'https://www.cra-arc.gc.ca',
+    'https://www.servicecanada.gc.ca',
+    'https://www.bmo.com',
+    'https://www.rbcroyalbank.com',
+    'https://www.td.com',
+    'https://www.scotiabank.com',
+    'https://www.cibc.com',
+    'https://www.presidentchoice.ca',
+    'https://www.walmart.ca',
+    'https://www.bestbuy.ca',
+    'https://www.homedepot.ca',
+    'https://www.costco.ca',
+    'https://www.loblaws.ca',
+    'https://www.metro.ca',
+    'https://www.aircanada.com',
+    'https://www.westjet.com',
+    'https://www.kijiji.ca',
+    'https://www.canadiantire.ca',
+    'https://www.moneysense.ca',
+    'https://www.weather.gc.ca',
+    'https://www.booking.com',
+    'https://www.tripadvisor.ca',
+    'https://www.samsung.com/ca'
+  ],
+  de: [
+    'https://www.google.de',
+    'https://www.youtube.com',
+    'https://www.amazon.de',
+    'https://www.ebay.de',
+    'https://www.facebook.com',
+    'https://www.instagram.com',
+    'https://www.wikipedia.org',
+    'https://www.t-online.de',
+    'https://www.spiegel.de',
+    'https://www.bild.de',
+    'https://www.gmx.net',
+    'https://www.web.de',
+    'https://www.zdf.de',
+    'https://www.ard.de',
+    'https://www.focus.de',
+    'https://www.linkedin.com',
+    'https://www.twitter.com',
+    'https://www.twitch.tv',
+    'https://www.reddit.com',
+    'https://www.tiktok.com',
+    'https://www.sueddeutsche.de',
+    'https://www.otto.de',
+    'https://www.kicker.de',
+    'https://www.chip.de',
+    'https://www.heise.de',
+    'https://www.bahn.de',
+    'https://www.tagesschau.de',
+    'https://www.paypal.com',
+    'https://www.immobilienscout24.de',
+    'https://www.netflix.com',
+    'https://www.ikea.com',
+    'https://www.booking.com',
+    'https://www.zeit.de',
+    'https://www.stepstone.de',
+    'https://www.bundesregierung.de',
+    'https://www.deutschepost.de',
+    'https://www.dhl.de',
+    'https://www.bka.de',
+    'https://www.bsi.bund.de',
+    'https://www.hochschule.de',
+    'https://www.finanzamt.de',
+    'https://www.arbeitsagentur.de',
+    'https://www.deezer.com',
+    'https://www.spotify.com',
+    'https://www.samsung.com/de'
+  ],
+  es: [
+    'https://www.google.es',
+    'https://www.youtube.com',
+    'https://www.amazon.es',
+    'https://www.facebook.com',
+    'https://www.instagram.com',
+    'https://www.wikipedia.org',
+    'https://www.reddit.com',
+    'https://www.twitter.com',
+    'https://www.linkedin.com',
+    'https://www.tiktok.com',
+    'https://www.elmundo.es',
+    'https://www.elpais.com',
+    'https://www.lavanguardia.com',
+    'https://www.abc.es',
+    'https://www.20minutos.es',
+    'https://www.rtve.es',
+    'https://www.lasexta.com',
+    'https://www.antena3.com',
+    'https://www.telecinco.es',
+    'https://www.marca.com',
+    'https://www.as.com',
+    'https://www.sport.es',
+    'https://www.mundodeportivo.com',
+    'https://www.bbva.es',
+    'https://www.caixabank.es',
+    'https://www.santander.es',
+    'https://www.bankinter.com',
+    'https://www.ing.es',
+    'https://www.renfe.com',
+    'https://www.sepe.es',
+    'https://www.agenciatributaria.es',
+    'https://www.seg-social.es',
+    'https://www.boe.es',
+    'https://www.mscbs.gob.es',
+    'https://www.elcorteingles.es',
+    'https://www.zara.com',
+    'https://www.mercadona.es',
+    'https://www.carrefour.es',
+    'https://www.alcampo.es',
+    'https://www.booking.com',
+    'https://www.tripadvisor.es',
+    'https://www.samsung.com/es'
+  ],
+  fr: [
+    'https://www.google.fr',
+    'https://www.youtube.com',
+    'https://www.amazon.fr',
+    'https://www.facebook.com',
+    'https://www.instagram.com',
+    'https://www.wikipedia.org',
+    'https://www.reddit.com',
+    'https://www.twitter.com',
+    'https://www.linkedin.com',
+    'https://www.tiktok.com',
+    'https://www.lemonde.fr',
+    'https://www.lefigaro.fr',
+    'https://www.ouest-france.fr',
+    'https://www.liberation.fr',
+    'https://www.francetvinfo.fr',
+    'https://www.bfmtv.com',
+    'https://www.tf1.fr',
+    'https://www.m6.fr',
+    'https://www.orange.fr',
+    'https://www.sfr.fr',
+    'https://www.free.fr',
+    'https://www.bouyguestelecom.fr',
+    'https://www.laposte.fr',
+    'https://www.impots.gouv.fr',
+    'https://www.service-public.fr',
+    'https://www.ameli.fr',
+    'https://www.caf.fr',
+    'https://www.sncf.com',
+    'https://www.voyages-sncf.com',
+    'https://www.fnac.com',
+    'https://www.darty.com',
+    'https://www.cdiscount.com',
+    'https://www.carrefour.fr',
+    'https://www.leclercdrive.fr',
+    'https://www.monoprix.fr',
+    'https://www.lidl.fr',
+    'https://www.ubereats.com',
+    'https://www.doctolib.fr',
+    'https://www.decathlon.fr',
+    'https://www.zalando.fr',
+    'https://www.booking.com',
+    'https://www.tripadvisor.fr',
+    'https://www.samsung.com/fr'
+  ],
+  ie: [
+    'https://www.google.ie',
+    'https://www.facebook.com',
+    'https://www.amazon.co.uk',
+    'https://www.rte.ie',
+    'https://www.independent.ie',
+    'https://www.irishtimes.com',
+    'https://www.donegaldaily.com',
+    'https://www.skysports.com/ireland',
+    'https://www.joe.ie',
+    'https://www.myhome.ie',
+    'https://www.daft.ie',
+    'https://www.century21.ie',
+    'https://www.gov.ie',
+    'https://www.citizensinformation.ie',
+    'https://www.irishrail.ie',
+    'https://www.met.ie',
+    'https://www.tesco.ie',
+    'https://www.supervalu.ie',
+    'https://www.evillage.ie',
+    'https://www.argos.ie',
+    'https://www.bonkers.ie',
+    'https://www.citypass.ie',
+    'https://www.twinkl.ie',
+    'https://www.shopandship.com',
+    'https://www.courts.ie',
+    'https://www.gumtree.ie',
+    'https://www.taoiseach.gov.ie',
+    'https://www.dublinairport.com',
+    'https://www.irishstatutebook.ie',
+    'https://www.thelocal.ie',
+    'https://www.donegalnow.com',
+    'https://www.sportinglife.com/ireland',
+    'https://www.citibank.ie',
+    'https://www.bankofireland.com',
+    'https://www.aib.ie',
+    'https://www.pernod-ricard.com/ie',
+    'https://www.water.ie',
+    'https://www.entertainment.ie',
+    'https://www.irishmirror.ie',
+    'https://www.bordbia.ie',
+    'https://www.samsung.com/ie'
+  ],
+  in: [
+    'https://www.google.co.in',
+    'https://www.facebook.com',
+    'https://www.amazon.in',
+    'https://www.flipkart.com',
+    'https://www.linkedin.com',
+    'https://www.indiatimes.com',
+    'https://www.ndtv.com',
+    'https://www.timesofindia.indiatimes.com',
+    'https://www.rediff.com',
+    'https://www.irctc.co.in',
+    'https://www.swiggy.com',
+    'https://www.zomato.com',
+    'https://www.makeinindia.com',
+    'https://www.naukri.com',
+    'https://www.justdial.com',
+    'https://www.snapdeal.com',
+    'https://www.myntra.com',
+    'https://www.olx.in',
+    'https://www.policybazaar.com',
+    'https://www.oyorooms.com',
+    'https://www.cleartrip.com',
+    'https://www.investing.com/india',
+    'https://www.businesstoday.in',
+    'https://www.coursera.org',
+    'https://www.upsc.gov.in',
+    'https://www.indiapost.gov.in',
+    'https://www.irctc.co.in',
+    'https://www.sbi.co.in',
+    'https://www.icici.com',
+    'https://www.axisbank.com',
+    'https://www.hdfcbank.com',
+    'https://www.licindia.in',
+    'https://www.indianrail.gov.in',
+    'https://www.indiamart.com',
+    'https://www.zomato.com',
+    'https://www.paytm.com',
+    'https://www.godaddy.com',
+    'https://www.hotstar.com',
+    'https://www.gaana.com',
+    'https://www.jagranjosh.com',
+    'https://www.bookmyshow.com',
+    'https://www.swiggy.com',
+    'https://www.tatacliq.com',
+    'https://www.samsung.com/in'
+  ],
+  it: [
+    'https://www.google.it',
+    'https://www.youtube.com',
+    'https://www.amazon.it',
+    'https://www.facebook.com',
+    'https://www.instagram.com',
+    'https://www.wikipedia.org',
+    'https://www.reddit.com',
+    'https://www.twitter.com',
+    'https://www.linkedin.com',
+    'https://www.tiktok.com',
+    'https://www.corriere.it',
+    'https://www.repubblica.it',
+    'https://www.ilsole24ore.com',
+    'https://www.ilfattoquotidiano.it',
+    'https://www.tgcom24.mediaset.it',
+    'https://www.rainews.it',
+    'https://www.ilgiornale.it',
+    'https://www.lastampa.it',
+    'https://www.liberoquotidiano.it',
+    'https://www.ansa.it',
+    'https://www.rai.it',
+    'https://www.mediaset.it',
+    'https://www.sky.it',
+    'https://www.raiplay.it',
+    'https://www.treccani.it',
+    'https://www.poste.it',
+    'https://www.agenziaentrate.gov.it',
+    'https://www.inps.it',
+    'https://www.pagopa.gov.it',
+    'https://www.istruzione.it',
+    'https://www.universitaly.it',
+    'https://www.trenitalia.com',
+    'https://www.italotreno.it',
+    'https://www.booking.com',
+    'https://www.tripadvisor.it',
+    'https://www.subito.it',
+    'https://www.idealista.it',
+    'https://www.zalando.it',
+    'https://www.esselunga.it',
+    'https://www.coop.it',
+    'https://www.euronics.it',
+    'https://www.mediaworld.it',
+    'https://www.samsung.com/it'
+  ],
+  nl: [
+    'http://www.nu.nl',
+    'http://www.telegraaf.nl',
+    'http://www.ad.nl',
+    'http://www.rtlnieuws.nl',
+    'http://www.nos.nl',
+    'http://www.marktplaats.nl',
+    'http://www.bol.com',
+    'http://www.wehkamp.nl',
+    'http://www.coolblue.nl',
+    'http://www.zalando.nl',
+    'http://www.ing.nl',
+    'http://www.rabobank.nl',
+    'http://www.abnamro.nl',
+    'http://www.tweakers.net',
+    'http://www.belastingdienst.nl',
+    'http://www.9292.nl',
+    'http://www.ns.nl',
+    'http://www.ah.nl',
+    'http://www.jumbo.com',
+    'http://www.thuisbezorgd.nl',
+    'http://www.booking.com',
+    'http://www.funda.nl',
+    'http://www.pathé.nl',
+    'http://www.spotify.com',
+    'http://www.youtube.com',
+    'http://www.facebook.com',
+    'http://www.instagram.com',
+    'http://www.linkedin.com',
+    'http://www.twitter.com',
+    'http://www.reddit.com',
+    'http://www.duo.nl',
+    'http://www.mijnoverheid.nl',
+    'http://www.kijk.nl',
+    'http://www.videoland.com',
+    'http://www.postnl.nl',
+    'http://www.gemeente.nl',
+    'http://www.startpagina.nl',
+    'http://www.trouw.nl',
+    'http://www.parool.nl',
+    'http://www.metronieuws.nl',
+    'http://www.schoolbank.nl',
+    'http://www.tinder.com',
+    'http://www.hollandandbarrett.nl',
+    'http://www.gamma.nl',
+    'http://www.praxis.nl',
+    'http://www.klm.nl',
+    'http://www.transavia.com',
+    'http://www.schiphol.nl',
+    'http://www.uwv.nl',
+    'http://www.indeed.nl',
+    'http://www.intermediair.nl',
+    'http://www.manpower.nl',
+    'http://www.randstad.nl',
+    'http://www.tempo-team.nl',
+    'http://www.centrumveiligwonen.nl',
+    'http://www.cbr.nl',
+    'http://www.anwb.nl',
+    'http://www.rdw.nl',
+    'http://www.rijksoverheid.nl',
+    'http://www.kvk.nl',
+    'http://www.psyq.nl',
+    'http://www.thuisarts.nl',
+    'http://www.zorgkaartnederland.nl',
+    'http://www.zilverenkrus.nl',
+    'http://www.fnv.nl',
+    'http://www.consumentenbond.nl',
+    'http://www.autoweek.nl',
+    'http://www.autotrack.nl',
+    'http://www.gaspedaal.nl',
+    'http://www.meteovista.nl',
+    'http://www.buienradar.nl',
+    'http://www.weeronline.nl',
+    'http://www.startpuntonderwijs.nl',
+    'http://www.encyclo.nl',
+    'https://www.samsung.com/nl'
+  ],
+  pl: [
+    'https://www.allegro.pl',
+    'https://www.olx.pl',
+    'https://www.onet.pl',
+    'https://www.wp.pl',
+    'https://www.interia.pl',
+    'https://www.gazeta.pl',
+    'https://www.empik.com',
+    'https://www.ceneo.pl',
+    'https://www.morele.net',
+    'https://www.bankier.pl',
+    'https://www.mbank.pl',
+    'https://www.ing.pl',
+    'https://www.tvn24.pl',
+    'https://www.wyborcza.pl',
+    'https://www.pudelek.pl',
+    'https://www.se.pl',
+    'https://www.o2.pl',
+    'https://www.dziennik.pl',
+    'https://www.money.pl',
+    'https://www.sport.pl',
+    'https://www.fakt.pl',
+    'https://www.naszemiasto.pl',
+    'https://www.pracuj.pl',
+    'https://www.zalando.pl',
+    'https://www.leroymerlin.pl',
+    'https://www.castorama.pl',
+    'https://www.mediaexpert.pl',
+    'https://www.eobuwie.com.pl',
+    'https://www.x-kom.pl',
+    'https://www.pekao24.pl',
+    'https://www.biedronka.pl',
+    'https://www.lidl.pl',
+    'https://www.tesco.pl',
+    'https://www.carrefour.pl',
+    'https://www.auchan.pl',
+    'https://www.orange.pl',
+    'https://www.play.pl',
+    'https://www.t-mobile.pl',
+    'https://www.plus.pl'
+  ]
+};
+
+/**
+ * Region-specific translations for cookie consent buttons
+ */
+const COOKIE_TRANSLATIONS = {
+  en: [
+    'Accept', 'Accept all', 'Accept cookies', 'Accept all cookies', 'I accept', 'I agree', 'Agree', 'Allow all', 'Allow cookies'
+  ],
+  de: [
+    'Akzeptieren', 'Alle akzeptieren', 'Cookies akzeptieren', 'Ich akzeptiere', 'Zustimmen', 'Alle zulassen', 'Cookies zulassen'
+  ],
+  fr: [
+    'Accepter', 'Tout accepter', 'Accepter les cookies', 'J\'accepte', 'Autoriser tous', 'Autoriser les cookies', 'Je suis d\'accord'
+  ],
+  es: [
+    'Aceptar', 'Aceptar todo', 'Aceptar cookies', 'Aceptar todas las cookies', 'Estoy de acuerdo', 'Permitir todo', 'Permitir cookies'
+  ],
+  it: [
+    'Accetta', 'Accetta tutto', 'Accetta i cookie', 'Accetto', 'Consenti tutto', 'Consenti i cookie', 'Sono d\'accordo'
+  ],
+  nl: [
+    'Accepteren', 'Alles accepteren', 'Cookies accepteren', 'Ik accepteer', 'Toestaan', 'Alle toestaan', 'Cookies toestaan'
+  ],
+  ie: [
+    'Accept', 'Accept all', 'Accept cookies', 'Accept all cookies', 'I accept', 'I agree', 'Agree', 'Allow all', 'Allow cookies'
+  ],
+  in: [
+    'Accept', 'Accept all', 'Accept cookies', 'Accept all cookies', 'I accept', 'I agree', 'Agree', 'Allow all', 'Allow cookies', 'स्वीकार करें', 'सभी स्वीकार करें'
+  ],
+  au: [
+    'Accept', 'Accept all', 'Accept cookies', 'Accept all cookies', 'I accept', 'I agree', 'Agree', 'Allow all', 'Allow cookies'
+  ],
+  ca: [
+    'Accept', 'Accept all', 'Accept cookies', 'Accept all cookies', 'I accept', 'I agree', 'Agree', 'Allow all', 'Allow cookies', 'Accepter', 'Tout accepter'
+  ],
+  uk: [
+    'Accept', 'Accept all', 'Accept cookies', 'Accept all cookies', 'I accept', 'I agree', 'Agree', 'Allow all', 'Allow cookies'
+  ],
+  pl: [
+    'Akceptuję',
+    'Zaakceptuj',
+    'Zgadzam się',
+    'Akceptuj wszystkie',
+    'Zamknij',
+    'Przejdź dalej',
+    'OK',
+    'Wyrażam zgodę'
+  ]
+};
+
+// Site-specific cookie consent handlers (XPaths)
+const SITE_COOKIE_HANDLERS = {
+  "google.co.uk": {
+    buttonXPath: '//*[contains(concat( " ", @class, " " ), concat( " ", "sy4vM", " " ))]'
+  },
+  "bbc.co.uk": {
+    buttonXPath: '//*[contains(concat( " ", @class, " " ), concat( " ", "eoocusk1", " " ))]'
+  },
+  "youtube.com": {
+    buttonXPath: '//*[contains(concat( " ", @class, " " ), concat( " ", "yt-spec-touch-feedback-shape__fill", " " ))]'
+  },
+  "amazon.co.uk": {
+    buttonXPath: '//*[(@id = "sp-cc-accept")]'
+  },
+  "ebay.co.uk": {
+    buttonXPath: '//*[(@id = "gdpr-banner-accept")]'
+  },
+  "facebook.com": {
+    buttonXPath: '//*[contains(concat( " ", @class, " " ), concat( " ", "xuxw1ft", " " ))]'
+  },
+  "instagram.com": {
+    buttonXPath: '//*[contains(concat( " ", @class, " " ), concat( " ", "_a9_0", " " ))]'
+  },
+  "twitter.com": {
+    buttonXPath: '//*[contains(concat( " ", @class, " " ), concat( " ", "r-poiln3", " " ))]'
+  },
+  "ticktok.com": {
+    buttonXPath: '//tiktok-cookie-banner'
+  },
+  "linkedin.com": {
+    buttonXPath: '//*[contains(concat( " ", @class, " " ), concat( " ", "artdeco-button--primary", " " ))]'
+  }
+};
+
+/**
+ * Handle cookie consent popups with region/language-aware button patterns
+ * @param {Object} page Puppeteer page
+ * @param {string} region Region code (for translations)
+ * @returns {Promise<boolean>} Whether a cookie consent was handled
+ */
+async function handleCookieConsent(page, region = 'en') {
+  try {
+    // 1. Try to handle JS alert/dialog if present
+    let dialogHandled = false;
+    const dialogListener = async dialog => {
+      await dialog.accept();
+      dialogHandled = true;
+    };
+    page.once('dialog', dialogListener);
+    // Give a short time for any dialog to appear
+    await page.waitForTimeout(1000);
+    page.removeListener('dialog', dialogListener);
+    if (dialogHandled) {
+      await randomDelay(1000, 2000);
+      return true;
+    }
+
+    // 2. Try site-specific XPath handler
+    const hostname = new URL(page.url()).hostname.replace(/^www\./, '');
+    const handler = SITE_COOKIE_HANDLERS[hostname];
+    if (handler && handler.buttonXPath) {
+      const [button] = await page.$x(handler.buttonXPath);
+      if (button) {
+        await button.click();
+        await randomDelay(1000, 2000);
+        return true;
+      }
+    }
+
+    // 3. Fallback to default logic (existing code)
+    // Get translations for the region, fallback to English
+    const lang = region && COOKIE_TRANSLATIONS[region] ? region : 'en';
+    const translations = COOKIE_TRANSLATIONS[lang];
+
+    // Build selectors for translated button texts
+    const textSelectors = translations.map(
+      t => `button:has-text("${t}")`
+    );
+
+    // Common class/ID patterns (not language-specific)
+    const genericSelectors = [
+      '[id*="cookie"] button',
+      '[class*="cookie"] button',
+      '[id*="consent"] button',
+      '[class*="consent"] button',
+      '#cookieChoiceDismiss',
+      '.cookie-banner button',
+      '.cookie-notice button',
+      '.cookie-consent button',
+      '.cookie-policy button',
+      '[aria-label*="cookie"]',
+      '[aria-label*="consent"]'
+    ];
+
+    const cookieSelectors = [...textSelectors, ...genericSelectors];
+
+    for (const selector of cookieSelectors) {
+      try {
+        const button = await page.$(selector);
+        if (button) {
+          await button.click();
+          await randomDelay(1000, 2000);
+          return true;
+        }
+      } catch (err) {
+        continue;
+      }
+    }
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Get random search query from a specific category or any category
+ * @param {string} category Category to get query from (optional)
+ * @param {string} customSearchTerms Custom search terms (optional)
+ * @returns {Object} Object containing the search query and category
+ */
+function getRandomSearchQuery(category = null, customSearchTerms = null) {
+  // Special handling for custom category
+  if (category === 'custom') {
+    if (customSearchTerms) {
+      // Split custom search terms and clean them
+      const terms = customSearchTerms.split(',')
+        .map(term => term.trim())
+        .filter(term => term.length > 0);
+      
+      if (terms.length > 0) {
+        // Return a random term from the custom list with category info
+        return {
+          query: terms[Math.floor(Math.random() * terms.length)],
+          category: 'custom'
+        };
+      }
+    }
+    // If we get here, either customSearchTerms was null/empty or had no valid terms
+    // Fall back to general category instead of trying to use 'custom' as a category
+    category = null;
+  }
+
+  // Check for custom search terms even when not in custom category (as a fallback)
+  if (customSearchTerms) {
+    const terms = customSearchTerms.split(',')
+      .map(term => term.trim())
+      .filter(term => term.length > 0);
+    
+    if (terms.length > 0) {
+      return {
+        query: terms[Math.floor(Math.random() * terms.length)],
+        category: category || 'custom'
+      };
+    }
+  }
+
+  // Use SEARCH_CATEGORIES instead of hardcoded queries
+  const categoryQueries = category && SEARCH_CATEGORIES[category] ? 
+    SEARCH_CATEGORIES[category].queries : 
+    SEARCH_CATEGORIES.general.queries; // Default to general if no category specified
+  
+  const selectedCategory = category || 'general';
+  
+  // Select a random query from the category
+  return {
+    query: categoryQueries[Math.floor(Math.random() * categoryQueries.length)],
+    category: selectedCategory
+  };
+}
+
+/**
+ * Get AdsPower API URL from settings or use default
+ * @returns {string} AdsPower API URL
+ */
+function getAdsPowerApiUrl() {
+  try {
+    if (Store) {
+      const store = new Store(getStoreOptions());
+      const url = store.get('adsPowerApiUrl');
+      if (url && typeof url === 'string' && url.trim()) {
+        return url.trim();
+      }
+    }
+  } catch (e) {}
+  // Fallback default
+  return 'http://127.0.0.1:50325';
+}
+
+/**
+ * Get AdsPower API key from settings
+ * @returns {string|null} AdsPower API key
+ */
+function getAdsPowerApiKey() {
+  try {
+    if (Store) {
+      const store = new Store(getStoreOptions());
+      const key = store.get('adsPowerApiKey');
+      if (key && typeof key === 'string' && key.trim()) {
+        return key.trim();
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+/**
+ * Verify AdsPower connection
+ * @returns {Promise<Object>} Connection result
+ */
+async function verifyAdsPowerConnection() {
+  try {
+    const apiUrl = getAdsPowerApiUrl();
+    const response = await axios.get(`${apiUrl}/status`);
+    
+    if (response.data && response.data.code === 0) {
+      return { success: true, message: 'AdsPower connection successful' };
+    } else {
+      return { 
+        success: false, 
+        message: response.data?.msg || 'Unknown AdsPower status error'
+      };
+    }
+  } catch (error) {
+    logger.error('AdsPower connection failed:', error);
+    return { 
+      success: false, 
+      message: `AdsPower connection failed: ${error.message}`
+    };
+  }
+}
+
+/**
+ * Start browser using AdsPower API
+ * @param {string} profileId AdsPower profile ID
+ * @param {boolean} headless Whether to start in headless mode (always true now)
+ * @returns {Promise<Object>} Browser result with Puppeteer browser instance
+ */
+async function startBrowser(profileId, headless = true) {
+  try {
+    headless = true;
+    
+    const apiUrl = getAdsPowerApiUrl();
+    const apiKey = getAdsPowerApiKey();
+    
+    const params = {
+      user_id: profileId,
+      launch_args: ['--no-sandbox', '--disable-setuid-sandbox'],
+      headless: 1
+    };
+    
+    if (apiKey) {
+      params.serial_number = apiKey;
+    }
+    
+    const response = await axios.get(`${apiUrl}/api/v1/browser/start`, { params });
+    
+    if (response.data && response.data.code === 0) {
+      const data = response.data.data || {};
+      const debugPort = data.debug_port;
+      
+      if (!debugPort) {
+        throw new Error('AdsPower API did not return a debug port');
+      }
+      
+      const browser = await puppeteer.connect({
+        browserURL: `http://127.0.0.1:${debugPort}`,
+        defaultViewport: null,
+        protocolTimeout: 45000 // 45 seconds for slow environments
+      });
+      
+      // Validate browser connection
+      if (!browser) {
+        throw new Error('Failed to connect to browser');
+      }
+      
+      let page;
+      try {
+        let pages = await browser.pages();
+        if (pages.length > 0) {
+          page = pages[0];
+        } else {
+          page = await browser.newPage();
+        }
+        
+        // Validate page object
+        if (!page) {
+          throw new Error('Failed to get or create page');
+        }
+        
+        // Test page functionality
+        await page.evaluate(() => document.readyState);
+        
+      } catch (pageError) {
+        throw new Error(`Failed to initialize page: ${pageError.message}`);
+      }
+      
+      await wait(2000); // Wait 2 seconds after browser/page is ready
+      
+      return {
+        success: true,
+        message: 'Browser started successfully',
+        browser,
+        page,
+        debugPort,
+        headless
+      };
+    } else {
+      return {
+        success: false,
+        message: response.data?.msg || 'Failed to start browser'
+      };
+    }
+  } catch (error) {
+    logger.error('Error starting browser:', error);
+    return {
+      success: false,
+      message: `Failed to start browser: ${error.message}`
+    };
+  }
+}
+
+/**
+ * Connect to an already running browser using debug port
+ * @param {number} debugPort Chrome debugging port
+ * @returns {Promise<Object>} Browser connection result
+ */
+async function connectToExistingBrowser(debugPort) {
+  try {
+    logger.info(`Connecting to existing browser with debug port ${debugPort}`);
+    
+    // Connect Puppeteer to the browser
+    const browser = await puppeteer.connect({
+      browserURL: `http://127.0.0.1:${debugPort}`,
+      defaultViewport: null,
+      protocolTimeout: 45000 // 45 seconds for slow environments
+    });
+    
+    // Validate browser connection
+    if (!browser) {
+      throw new Error('Failed to connect to browser');
+    }
+    
+    let page;
+    try {
+      // Get any existing pages or create a new one
+      let pages = await browser.pages();
+      if (pages.length > 0) {
+        page = pages[0];
+      } else {
+        page = await browser.newPage();
+      }
+      
+      // Validate page object
+      if (!page) {
+        throw new Error('Failed to get or create page');
+      }
+      
+      // Test page functionality
+      await page.evaluate(() => document.readyState);
+      
+    } catch (pageError) {
+      throw new Error(`Failed to initialize page: ${pageError.message}`);
+    }
+    
+    await wait(2000); // Wait 2 seconds after browser/page is ready
+    
+    logger.info('Successfully connected to browser');
+    
+    return {
+      success: true,
+      message: 'Connected to existing browser',
+      browser,
+      page,
+      debugPort
+    };
+  } catch (error) {
+    logger.error('Error connecting to existing browser:', error);
+    return {
+      success: false,
+      message: `Failed to connect to browser: ${error.message}`
+    };
+  }
+}
+
+/**
+ * Select a random item from an array based on weights
+ * @param {Array} items Array of items with weight property
+ * @returns {Object} Selected item
+ */
+function selectWeightedRandom(items) {
+  // Calculate total weight
+  const totalWeight = items.reduce((sum, item) => sum + (item.weight || 1), 0);
+  
+  // Generate random number between 0 and totalWeight
+  const random = Math.random() * totalWeight;
+  
+  // Find the item based on the random number
+  let weightSum = 0;
+  for (const item of items) {
+    weightSum += (item.weight || 1);
+    if (random < weightSum) {
+      return item;
+    }
+  }
+  
+  // Fallback to first item (should never happen)
+  return items[0];
+}
+
+/**
+ * Stop browser using AdsPower API
+ * @param {string} profileId AdsPower profile ID
+ * @returns {Promise<Object>} Result of browser stop
+ */
+async function stopBrowser(profileId, _internal = false) {
+  try {
+    logger.info(`Stopping browser for profile ${profileId}`);
+    
+    // Get AdsPower API URL and key
+    const apiUrl = getAdsPowerApiUrl();
+    const apiKey = getAdsPowerApiKey();
+    
+    // Build request parameters
+    const params = {
+      user_id: profileId
+    };
+    
+    // Add API key if available
+    if (apiKey) {
+      params.serial_number = apiKey;
+    }
+    
+    // Call AdsPower API to stop browser
+    const response = await axios.get(`${apiUrl}/api/v1/browser/stop`, { params });
+    
+    if (response.data && response.data.code === 0) {
+      return {
+        success: true,
+        message: 'Browser stopped successfully'
+      };
+    } else {
+      return {
+        success: false,
+        message: response.data?.msg || 'Failed to stop browser'
+      };
+    }
+  } catch (error) {
+    logger.error('Error stopping browser:', error);
+    return {
+      success: false,
+      message: `Failed to stop browser: ${error.message}`
+    };
+  }
+}
+
+/**
+ * Random delay function to simulate human behavior
+ * @param {number} min Minimum delay in ms
+ * @param {number} max Maximum delay in ms
+ * @returns {Promise<void>}
+ */
+function randomDelay(min = 1000, max = 3000) {
+  const delay = Math.floor(Math.random() * (max - min + 1)) + min;
+  return new Promise(resolve => setTimeout(resolve, delay));
+}
+
+/**
+ * Safe click function with retry logic
+ * @param {Object} page Puppeteer page
+ * @param {string} selector Element selector
+ * @returns {Promise<boolean>} Success status
+ */
+async function safeClick(page, selector) {
+  try {
+    // Wait for element to be visible
+    await page.waitForSelector(selector, { visible: true, timeout: 5000 });
+    
+    // Add a small random delay
+    await randomDelay(300, 800);
+    
+    // Click the element
+    await page.click(selector);
+    return true;
+  } catch (error) {
+    logger.error(`Error clicking element ${selector}:`, error);
+    return false;
+  }
+}
+
+/**
+ * Safe scroll function
+ * @param {Object} page Puppeteer page
+ * @param {number} amount Scroll amount
+ * @returns {Promise<boolean>} Success status
+ */
+async function safeScroll(page, amount = null) {
+  try {
+    if (amount === null) {
+      // Random scroll between 100 and 800 pixels
+      amount = Math.floor(Math.random() * 700) + 100;
+    }
+    
+    await page.evaluate((scrollAmount) => {
+      window.scrollBy(0, scrollAmount);
+    }, amount);
+    
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Perform random mouse movements
+ * @param {Object} page Puppeteer page
+ * @returns {Promise<boolean>} Success status
+ */
+async function randomMouseMovement(page) {
+  try {
+    // Get viewport dimensions
+    const dimensions = await page.evaluate(() => {
+      return {
+        width: window.innerWidth,
+        height: window.innerHeight
+      };
+    });
+    
+    // Generate random coordinates
+    const x = Math.floor(Math.random() * dimensions.width);
+    const y = Math.floor(Math.random() * dimensions.height);
+    
+    // Move mouse
+    await page.mouse.move(x, y);
+    
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Robust navigation helper: tries domcontentloaded, then networkidle2 if timeout, logs errors and detects CAPTCHAs/bot checks
+ * @param {Object} page Puppeteer page
+ * @param {string} url URL to navigate to
+ * @param {number} timeout Timeout in ms (default 60000)
+ * @param {string} context Optional context string for logging
+ */
+async function robustGoto(page, url, timeout = 60000, context = '') {
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
+  } catch (err) {
+    if (err.message && err.message.includes('Navigation timeout')) {
+      logger.warn(`[robustGoto] domcontentloaded timeout for ${url} ${context ? '(' + context + ')' : ''}, retrying with networkidle2`);
+      try {
+        await page.goto(url, { waitUntil: 'networkidle2', timeout });
+      } catch (err2) {
+        logger.error(`[robustGoto] networkidle2 also failed for ${url} ${context ? '(' + context + ')' : ''}: ${err2.message}`);
+        throw err2;
+      }
+    } else {
+      logger.error(`[robustGoto] Error navigating to ${url} ${context ? '(' + context + ')' : ''}: ${err.message}`);
+      throw err;
+    }
+  }
+  // After navigation, check for CAPTCHA/bot check
+  const pageContent = await page.content();
+  if (/captcha|robot check|are you human|verify you are human|not a robot/i.test(pageContent)) {
+    logger.warn(`[robustGoto] CAPTCHA or bot check detected on ${url} ${context ? '(' + context + ')' : ''}`);
+  }
+}
+
+/**
+ * Browse Amazon with automated actions
+ * @param {Object} page Puppeteer page
+ * @param {string} profileId AdsPower profile ID
+ * @param {string} activeSessionId Session ID
+ * @param {number} minDurationMins Minimum session duration
+ * @param {number} maxDurationMins Maximum session duration
+ * @param {string} region Region code
+ * @param {string} searchCategory Search category (optional)
+ * @param {string} customSearchTerms Custom search terms (optional)
+ * @param {Object} cancelToken Cancellation token
+ * @param {Object} planParams Plan parameters
+ * @returns {Promise<Object>} Result of Amazon browsing
+ */
+async function browseAmazon(
+  page, 
+  profileId, 
+  activeSessionId = null, 
+  minDurationMins = 5, 
+  maxDurationMins = 15, 
+  region = null, 
+  searchCategory = null,
+  customSearchTerms = null,
+  cancelToken = null,
+  planParams = null
+) {
+  const startTime = Date.now();
+  const sessionActions = [];
+  const sitesVisited = new Set(['amazon']);
+  let consecutiveFailures = 0;
+  
+  try {
+    const durationMins = minDurationMins;
+    const endTime = startTime + (durationMins * 60 * 1000);
+    
+    // Use default parameters if none provided
+    const params = planParams || {
+      actionsPerIteration: { min: 5, max: 8 },
+      scrollDepth: 0.6,
+      additionalInteractionChance: 0.4,
+      actionDelay: { min: 2000, max: 4000 },
+      searchBrowseRatio: 0.5,
+      burstPauseTime: { min: 5000, max: 10000 }
+    };
+    
+    logSessionAction(activeSessionId, 'session_start', 'amazon', `Started Amazon browsing session with category ${searchCategory || 'random'} and plan parameters:`, params);
+    
+    let amazonDomain = 'amazon.com';
+    if (region === 'uk') amazonDomain = 'amazon.co.uk';
+    else if (region === 'ca') amazonDomain = 'amazon.ca';
+    else if (region === 'de') amazonDomain = 'amazon.de';
+    else if (region === 'fr') amazonDomain = 'amazon.fr';
+    else if (region === 'nl') amazonDomain = 'amazon.nl';
+    else if (region === 'es') amazonDomain = 'amazon.es';
+    else if (region === 'it') amazonDomain = 'amazon.it';
+    else if (region === 'in') amazonDomain = 'amazon.in';
+    else if (region === 'ie') amazonDomain = 'amazon.ie';
+    else if (region === 'pl') amazonDomain = 'amazon.pl';
+    else if (region === 'be') amazonDomain = 'amazon.com.be';
+  
+    await robustGoto(page, `https://www.${amazonDomain}`, 60000, 'Amazon home');
+    
+    // Handle cookie consent
+    await handleCookieConsent(page, region);
+    
+    while (Date.now() < endTime) {
+      if (cancelToken && cancelToken.cancelled) {
+        logger.info(`[browseAmazon] Cancelled for session ${activeSessionId}`);
+        break;
+      }
+
+      // Determine number of actions for this iteration based on plan
+      const numActions = Math.floor(Math.random() * 
+        (params.actionsPerIteration.max - params.actionsPerIteration.min + 1)) + 
+        params.actionsPerIteration.min;
+
+      for (let i = 0; i < numActions; i++) {
+        if (cancelToken && cancelToken.cancelled) {
+          logger.info(`[browseAmazon] Cancelled for session ${activeSessionId}`);
+          break;
+        }
+        // Determine if this should be a search or browse action based on ratio
+        const isSearch = Math.random() < params.searchBrowseRatio;
+        
+        const actions = isSearch ? 
+          [
+            { name: 'search', weight: 70 },
+            { name: 'click_product', weight: 30 }
+          ] : 
+          [
+            { name: 'browse_category', weight: 40 },
+            { name: 'click_product', weight: 30 },
+            { name: 'scroll', weight: 20 },
+            { name: 'random_movement', weight: 10 }
+          ];
+        
+        // Use the helper for weighted random selection
+        const selectedAction = selectWeightedRandom(actions);
+        
+        try {
+          if (selectedAction.name === 'search') {
+            const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+            await robustGoto(page, `https://www.${amazonDomain}`, 60000, 'Amazon search');
+            await page.waitForSelector('#twotabsearchtextbox');
+            await page.type('#twotabsearchtextbox', searchQuery.query);
+            await safeClick(page, '#nav-search-submit-button');
+            
+            const categoryText = searchQuery.category ? ` in ${searchQuery.category} category` : '';
+            logSessionAction(activeSessionId, 'search', page.url(), `Searched for "${searchQuery.query}"${categoryText}`);
+            
+          } else if (selectedAction.name === 'browse_category') {
+            await robustGoto(page, `https://www.${amazonDomain}`, 60000, 'Amazon category browse');
+            
+            if (await safeClick(page, '#nav-hamburger-menu')) {
+              await page.waitForSelector('.hmenu-visible', { timeout: 5000 });
+              const categoryLinks = await page.$$('.hmenu-visible a.hmenu-item');
+              
+              if (categoryLinks.length > 0) {
+                const randomIndex = Math.floor(Math.random() * categoryLinks.length);
+                await categoryLinks[randomIndex].click();
+                const categoryName = await page.evaluate(el => el.textContent.trim(), categoryLinks[randomIndex]);
+                logSessionAction(activeSessionId, 'browse_category', page.url(), `Browsed category "${categoryName}"`);
+              }
+            }
+            
+          } else if (selectedAction.name === 'click_product') {
+            if (!page.url().includes('/s?') && !page.url().includes('/browse/')) {
+              const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+              await robustGoto(page, `https://www.${amazonDomain}/s?k=${searchQuery.query}`, 60000, 'Amazon product search');
+              const categoryText = searchQuery.category ? ` in ${searchQuery.category} category` : '';
+              logSessionAction(activeSessionId, 'search', page.url(), `Searched for "${searchQuery.query}"${categoryText}`);
+            }
+            
+            await page.waitForSelector('.s-result-item a.a-link-normal', { timeout: 5000 });
+            const productLinks = await page.$$('.s-result-item a.a-link-normal');
+            
+            if (productLinks.length > 0) {
+              const randomIndex = Math.floor(Math.random() * productLinks.length);
+              await productLinks[randomIndex].click();
+              await page.waitForNavigation({ waitUntil: 'networkidle2' });
+              
+              const productTitle = await page.$eval('#productTitle', el => el.textContent.trim()).catch(() => 'Unknown Product');
+              logSessionAction(activeSessionId, 'view_product', page.url(), `Viewed product "${productTitle}"`);
+              
+              // Scroll based on plan's scroll depth
+              const scrollAmount = Math.floor(params.scrollDepth * 1000); // Convert to pixels
+              for (let i = 0; i < 3; i++) {
+                await safeScroll(page, scrollAmount);
+                await randomDelay(params.actionDelay.min, params.actionDelay.max);
+              }
+            }
+            
+          } else if (selectedAction.name === 'scroll') {
+            const scrollAmount = Math.floor(params.scrollDepth * 1000); // Convert to pixels
+            for (let i = 0; i < 5; i++) {
+              await safeScroll(page, scrollAmount);
+              await randomDelay(params.actionDelay.min, params.actionDelay.max);
+            }
+            
+          } else if (selectedAction.name === 'random_movement') {
+            for (let i = 0; i < 10; i++) {
+              await randomMouseMovement(page);
+              await randomDelay(params.actionDelay.min / 2, params.actionDelay.max / 2);
+            }
+          }
+          
+          // Check for additional interactions based on plan's chance
+          if (Math.random() < params.additionalInteractionChance) {
+            await randomMouseMovement(page);
+            await randomDelay(params.actionDelay.min / 2, params.actionDelay.max / 2);
+          }
+          
+          await randomDelay(params.actionDelay.min, params.actionDelay.max);
+          
+        } catch (error) {
+          logger.error(`Error during Amazon browsing action: ${error.message}`);
+          logSessionAction(activeSessionId, 'error', page.url(), `Error: ${error.message}`);
+          
+          consecutiveFailures++;
+          if (consecutiveFailures >= 3) {
+            await robustGoto(page, `https://www.${amazonDomain}`, 60000, 'Amazon home');
+            consecutiveFailures = 0;
+          }
+        }
+      }
+      
+      // Add burst pause based on plan
+      await randomDelay(params.burstPauseTime.min, params.burstPauseTime.max);
+    }
+    
+    const actualDurationMins = (Date.now() - startTime) / (60 * 1000);
+    
+    return {
+      success: true,
+      site: 'amazon',
+      duration_mins: actualDurationMins,
+      sites_visited: Array.from(sitesVisited),
+      actions_count: sessionActions.length,
+      actions_log: sessionActions
+    };
+    
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      duration_mins: (Date.now() - startTime) / (60 * 1000),
+      sites_visited: Array.from(sitesVisited),
+      actions_count: sessionActions.length,
+      actions_log: sessionActions
+    };
+  }
+}
+
+/**
+ * Browse eBay with automated actions
+ * @param {Object} page Puppeteer page
+ * @param {string} profileId AdsPower profile ID
+ * @param {string} activeSessionId Session ID
+ * @param {number} minDurationMins Minimum session duration
+ * @param {number} maxDurationMins Maximum session duration
+ * @param {string} region Region code
+ * @param {string} searchCategory Search category (optional)
+ * @param {string} customSearchTerms Custom search terms (optional)
+ * @param {Object} cancelToken Cancellation token
+ * @param {Object} planParams Plan parameters
+ * @returns {Promise<Object>} Result of eBay browsing
+ */
+async function browseEbay(
+  page, 
+  profileId, 
+  activeSessionId = null, 
+  minDurationMins = 5, 
+  maxDurationMins = 15, 
+  region = null, 
+  searchCategory = null,
+  customSearchTerms = null,
+  cancelToken = null,
+  planParams = {
+    actionsPerIteration: { min: 5, max: 8 },
+    scrollDepth: 0.6,
+    additionalInteractionChance: 0.4,
+    actionDelay: { min: 2000, max: 4000 },
+    searchBrowseRatio: 0.5,
+    burstPauseTime: { min: 5000, max: 10000 }
+  }
+) {
+  const startTime = Date.now();
+  const sessionActions = [];
+  const sitesVisited = new Set(['ebay']);
+  let consecutiveFailures = 0;
+  
+  try {
+    logger.info(`Starting eBay browsing session for profile ${profileId} with region ${region || 'random'} and category ${searchCategory || 'random'} (Plan: ${planParams?.plan || 'standard'})`);
+    
+    const durationMins = minDurationMins;
+    const endTime = startTime + (durationMins * 60 * 1000);
+    
+    logSessionAction(activeSessionId, 'session_start', 'ebay', `Started eBay browsing session with category ${searchCategory || 'random'}`);
+    
+    let ebayDomain = 'ebay.com';
+    if (region === 'uk') ebayDomain = 'ebay.co.uk';
+    else if (region === 'ca') ebayDomain = 'ebay.ca';
+    else if (region === 'de') ebayDomain = 'ebay.de';
+    else if (region === 'fr') ebayDomain = 'ebay.fr';
+    else if (region === 'nl') ebayDomain = 'ebay.nl';
+    else if (region === 'es') ebayDomain = 'ebay.es';
+    else if (region === 'it') ebayDomain = 'ebay.it';
+    else if (region === 'in') ebayDomain = 'ebay.in';
+    else if (region === 'ie') ebayDomain = 'ebay.ie';
+    else if (region === 'be') ebayDomain = 'ebay.com.be';
+    else if (region === 'pl') ebayDomain = 'ebay.pl';
+    
+    logger.info(`Using eBay domain: ${ebayDomain} for region: ${region || 'random'} (Plan: ${planParams?.plan || 'standard'})`);
+    
+    await robustGoto(page, `https://www.${ebayDomain}`, 60000, 'eBay home');
+    
+    // Handle cookie consent
+    await handleCookieConsent(page, region);
+    
+    logSessionAction(activeSessionId, 'navigate', `https://www.${ebayDomain}`, `Opened eBay for region ${region || 'random'}`);
+    
+    while (Date.now() < endTime) {
+      if (cancelToken && cancelToken.cancelled) {
+        logger.info(`[browseEbay] Cancelled for session ${activeSessionId}`);
+        break;
+      }
+      try {
+        const selectedAction = selectWeightedRandom([
+          { name: 'search', weight: 30 },
+          { name: 'browse_category', weight: 20 },
+          { name: 'click_product', weight: 25 },
+          { name: 'scroll', weight: 15 },
+          { name: 'random_movement', weight: 10 }
+        ]);
+
+        if (cancelToken && cancelToken.cancelled) {
+          logger.info(`[browseEbay] Cancelled for session ${activeSessionId}`);
+          break;
+        }
+        
+        if (selectedAction.name === 'search') {
+          const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+          
+          await robustGoto(page, `https://www.${ebayDomain}`, 60000, 'eBay search');
+          await page.waitForSelector('#gh-ac');
+          await page.type('#gh-ac', searchQuery.query);
+          await page.keyboard.press('Enter');
+          
+          logSessionAction(
+            activeSessionId, 
+            'search', 
+            page.url(), 
+            `Searched for "${searchQuery.query}" (Category: ${searchQuery.category || 'random'}`
+          );
+          
+        } else if (selectedAction.name === 'browse_category') {
+          const ebayCategories = [
+            'electronics', 'fashion', 'health-beauty', 'home-garden',
+            'sporting-goods', 'toys-hobbies', 'business-industrial', 'jewelry-watches'
+          ];
+          
+          const randomCategory = ebayCategories[Math.floor(Math.random() * ebayCategories.length)];
+          
+          await robustGoto(page, `https://www.${ebayDomain}/b/${randomCategory}`, 60000, 'eBay category browse');
+          
+          logSessionAction(activeSessionId, 'browse_category', page.url(), `Browsed eBay category "${randomCategory}"`);
+        } else if (selectedAction.name === 'click_product') {
+          if (!page.url().includes('/sch/')) {
+            const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+            await robustGoto(page, `https://www.${ebayDomain}/sch/i.html?_nkw=${encodeURIComponent(searchQuery.query)}`, 60000, 'eBay product search');
+          }
+          
+          await page.waitForSelector('.s-item__link', { timeout: 5000 });
+          const productLinks = await page.$$('.s-item__link');
+          
+          if (productLinks.length > 0) {
+            const startIndex = productLinks.length > 1 ? 1 : 0;
+            const randomIndex = startIndex + Math.floor(Math.random() * (productLinks.length - startIndex));
+            await productLinks[randomIndex].click();
+            await page.waitForNavigation({ waitUntil: 'networkidle2' });
+            
+            const productTitle = await page.$eval('h1.x-item-title__mainTitle span', el => el.textContent.trim())
+              .catch(() => 'Unknown Product');
+            logSessionAction(activeSessionId, 'view_product', page.url(), `Viewed eBay item "${productTitle}"`);
+            
+            for (let i = 0; i < 3; i++) {
+              await safeScroll(page, 300);
+              await randomDelay(1000, 2000);
+            }
+          }
+          
+        } else if (selectedAction.name === 'scroll') {
+          for (let i = 0; i < 5; i++) {
+            await safeScroll(page);
+            await randomDelay(500, 1500);
+          }
+          
+          logSessionAction(activeSessionId, 'scroll', page.url(), 'Scrolled down the eBay page');
+          
+        } else if (selectedAction.name === 'random_movement') {
+          for (let i = 0; i < 10; i++) {
+            await randomMouseMovement(page);
+            await randomDelay(200, 500);
+          }
+          
+          logSessionAction(activeSessionId, 'mouse_movement', page.url(), 'Random mouse movements on eBay');
+        }
+        
+        await randomDelay(2000, 5000);
+        
+      } catch (error) {
+        logger.error(`Error during eBay browsing action: ${error.message}`);
+        logSessionAction(activeSessionId, 'error', page.url(), `Error: ${error.message}`, false);
+        
+        consecutiveFailures++;
+        if (consecutiveFailures >= 3) {
+          logger.warn('Too many consecutive failures, attempting recovery');
+          try {
+            await robustGoto(page, `https://www.${ebayDomain}`, 60000, 'eBay home');
+            consecutiveFailures = 0;
+          } catch (recoveryError) {
+            logger.error(`Recovery attempt failed: ${recoveryError.message}`);
+            throw new Error(`Failed to recover from consecutive failures: ${recoveryError.message}`);
+          }
+        }
+      }
+    }
+    
+    const actualDurationMins = (Date.now() - startTime) / (60 * 1000);
+    
+    return {
+      success: true,
+      site: 'ebay',
+      duration_mins: actualDurationMins,
+      sites_visited: Array.from(sitesVisited),
+      actions_count: sessionActions.length,
+      actions_log: sessionActions
+    };
+    
+  } catch (error) {
+    logger.error(`Error in eBay browsing session: ${error.message}`);
+    
+    return {
+      success: false,
+      site: 'ebay',
+      error: error.message,
+      duration_mins: (Date.now() - startTime) / (60 * 1000),
+      sites_visited: Array.from(sitesVisited),
+      actions_count: sessionActions.length,
+      actions_log: sessionActions
+    };
+  }
+}
+
+/**
+ * Browse Google with automated actions
+ * @param {Object} page Puppeteer page
+ * @param {string} profileId AdsPower profile ID
+ * @param {string} activeSessionId Session ID
+ * @param {number} minDurationMins Minimum session duration
+ * @param {number} maxDurationMins Maximum session duration
+ * @param {string} region Region code (pass-through, defaults to null)
+ * @param {string} searchCategory Search category (optional)
+ * @param {string} customSearchTerms Custom search terms (optional)
+ * @param {Object} cancelToken Cancellation token
+ * @param {Object} planParams Plan parameters
+ * @returns {Promise<Object>} Result of Google browsing
+ */
+async function browseGoogle(
+  page, 
+  profileId, 
+  activeSessionId = null, 
+  minDurationMins = 5, 
+  maxDurationMins = 15, 
+  region = null, 
+  searchCategory = null,
+  customSearchTerms = null,
+  cancelToken = null,
+  planParams = {
+    actionsPerIteration: { min: 5, max: 8 },
+    scrollDepth: 0.6,
+    additionalInteractionChance: 0.4,
+    actionDelay: { min: 2000, max: 4000 },
+    searchBrowseRatio: 0.5,
+    burstPauseTime: { min: 5000, max: 10000 }
+  }
+) {
+  logger.info(`Starting Google browsing session for profile ${profileId} with region ${region} and category ${searchCategory || 'random'} (Plan: ${planParams?.plan || 'standard'})`);
+  logSessionAction(activeSessionId, 'session_start', 'google.com', 'Starting Google browsing session');
+  
+  const startTime = Date.now();
+  const maxDurationMs = maxDurationMins * 60 * 1000;
+  let consecutiveFailures = 0;
+  
+  const googleDomains = {
+    'us': 'google.com',
+    'uk': 'google.co.uk',
+    'ca': 'google.ca',
+    'au': 'google.com.au',
+    'de': 'google.de',
+    'fr': 'google.fr',
+    'es': 'google.es',
+    'it': 'google.it',
+    'ie': 'google.ie'
+  };
+  
+  const googleDomain = googleDomains[region] || 'google.com';
+  logger.info(`Using Google domain: ${googleDomain} for region: ${region} (Plan: ${planParams?.plan || 'standard'})`);
+  
+  try {
+    await robustGoto(page, `https://www.${googleDomain}/`, 60000, 'Google home');
+    
+    // Handle cookie consent
+    await handleCookieConsent(page, region);
+    
+    logSessionAction(activeSessionId, 'navigate', page.url(), 'Navigated to Google homepage');
+    
+    while (Date.now() - startTime < maxDurationMs) {
+      if (cancelToken && cancelToken.cancelled) {
+        logger.info(`[browseGoogle] Cancelled for session ${activeSessionId}`);
+        break;
+      }
+      try {
+        const selectedAction = selectWeightedRandom([
+          { name: 'search', weight: 40 },
+          { name: 'scroll', weight: 30 },
+          { name: 'click_result', weight: 30 }
+        ]);
+
+        if (cancelToken && cancelToken.cancelled) {
+          logger.info(`[browseGoogle] Cancelled for session ${activeSessionId}`);
+          break;
+        }
+        
+        if (selectedAction.name === 'search') {
+          const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+          
+          await robustGoto(page, `https://www.${googleDomain}/search?q=${encodeURIComponent(searchQuery.query)}`, 60000, 'Google search');
+          
+          logSessionAction(activeSessionId, 'search', page.url(), `Searched for "${searchQuery.query}" (direct URL)`);
+          consecutiveFailures = 0;
+        } else if (selectedAction.name === 'scroll') {
+          await safeScroll(page);
+          logSessionAction(activeSessionId, 'scroll', page.url(), 'Scrolled through search results');
+          consecutiveFailures = 0;
+        } else if (selectedAction.name === 'click_result') {
+          if (page.url().includes('search?')) {
+            try {
+              await page.waitForSelector('#search a, .g a, a.sICzAf', { timeout: 5000 });
+              
+              const searchResults = await page.$$('#search a, .g a, a.sICzAf');
+              
+              if (searchResults.length > 0) {
+                const randomIndex = Math.floor(Math.random() * Math.min(searchResults.length, 5));
+                
+                const href = await page.evaluate(el => el.href, searchResults[randomIndex]);
+                
+                await Promise.all([
+                  page.waitForNavigation({ timeout: 10000 }).catch(() => {}),
+                  searchResults[randomIndex].click()
+                ]);
+                
+                logSessionAction(activeSessionId, 'click_result', page.url(), `Clicked on search result: ${href}`);
+                
+                await randomDelay(3000, 8000);
+                
+                await page.goBack({ waitUntil: 'networkidle2' });
+                logSessionAction(activeSessionId, 'navigate', page.url(), 'Navigated back to search results');
+                
+                consecutiveFailures = 0;
+              }
+            } catch (error) {
+              throw new Error(`Failed to click search result: ${error.message}`);
+            }
+          } else {
+            const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+            await robustGoto(page, `https://www.${googleDomain}/search?q=${encodeURIComponent(searchQuery.query)}`, 60000, 'Google search');
+            logSessionAction(activeSessionId, 'search', page.url(), `Searched for "${searchQuery.query}" (direct URL)`);
+            consecutiveFailures = 0;
+          }
+        }
+        
+        await randomDelay(2000, 5000);
+        
+      } catch (actionError) {
+        logger.error(`Error during Google browsing action: ${actionError.message}`);
+        logSessionAction(activeSessionId, 'error', page.url(), actionError.message, false);
+        
+        consecutiveFailures++;
+        
+        if (consecutiveFailures >= 3) {
+          logger.warn('Too many consecutive failures, attempting recovery');
+          try {
+            await robustGoto(page, `https://www.${googleDomain}/`, 60000, 'Google home');
+            consecutiveFailures = 0;
+          } catch (recoveryError) {
+            logger.error(`Recovery attempt failed: ${recoveryError.message}`);
+            throw new Error(`Failed to recover from consecutive failures: ${recoveryError.message}`);
+          }
+        }
+      }
+    }
+    
+    const actualDuration = (Date.now() - startTime) / (60 * 1000);
+    logger.info(`Completed Google browsing session (${actualDuration.toFixed(2)} minutes) (Plan: ${planParams?.plan || 'standard'})`);
+    
+    return {
+      success: true,
+      duration: actualDuration,
+      site: 'google'
+    };
+    
+  } catch (error) {
+    const actualDuration = (Date.now() - startTime) / (60 * 1000);
+    logger.error(`Error in Google browsing session: ${error.message}`);
+    
+    return {
+      success: false,
+      duration: actualDuration,
+      error: error.message,
+      site: 'google'
+    };
+  }
+}
+
+/**
+ * Browse YouTube with automated actions
+ * @param {Object} page Puppeteer page
+ * @param {string} profileId AdsPower profile ID
+ * @param {string} activeSessionId Session ID
+ * @param {number} minDurationMins Minimum session duration
+ * @param {number} maxDurationMins Maximum session duration
+ * @param {string} region Region code (affects YouTube recommendations)
+ * @param {string} searchCategory Search category (optional)
+ * @param {string} customSearchTerms Custom search terms (optional)
+ * @param {Object} cancelToken Cancellation token
+ * @param {Object} planParams Plan parameters
+ * @returns {Promise<Object>} Result of YouTube browsing
+ */
+async function browseYouTube(
+  page, 
+  profileId, 
+  activeSessionId = null, 
+  minDurationMins = 5, 
+  maxDurationMins = 15, 
+  region = 'us', 
+  searchCategory = null,
+  customSearchTerms = null,
+  cancelToken = null,
+  planParams = {
+    actionsPerIteration: { min: 5, max: 8 },
+    scrollDepth: 0.6,
+    additionalInteractionChance: 0.4,
+    actionDelay: { min: 2000, max: 4000 },
+    searchBrowseRatio: 0.5,
+    burstPauseTime: { min: 5000, max: 10000 }
+  }
+) {
+  const startTime = Date.now();
+  const sessionActions = [];
+  const sitesVisited = new Set(['youtube']);
+  let consecutiveFailures = 0;
+  
+  try {
+    logger.info(`Starting YouTube browsing session for profile ${profileId} with region ${region} and category ${searchCategory || 'random'} (Plan: ${planParams?.plan || 'standard'})`);
+    
+    const durationMins = minDurationMins;
+    const endTime = startTime + (durationMins * 60 * 1000);
+    
+    logSessionAction(activeSessionId, 'session_start', 'youtube', `Started YouTube browsing session with category ${searchCategory || 'random'}`);
+    
+    await robustGoto(page, 'https://www.youtube.com', 60000, 'YouTube home');
+    
+    // Handle cookie consent
+    await handleCookieConsent(page, region);
+    
+    logSessionAction(activeSessionId, 'navigate', 'https://www.youtube.com', 'Opened YouTube');
+    
+    while (Date.now() < endTime) {
+      if (cancelToken && cancelToken.cancelled) {
+        logger.info(`[browseYouTube] Cancelled for session ${activeSessionId}`);
+        break;
+      }
+      
+      // Determine number of actions for this iteration based on plan
+      const numActions = Math.floor(Math.random() * 
+        (planParams.actionsPerIteration.max - planParams.actionsPerIteration.min + 1)) + 
+        planParams.actionsPerIteration.min;
+
+      for (let i = 0; i < numActions; i++) {
+        if (cancelToken && cancelToken.cancelled) {
+          logger.info(`[browseYouTube] Cancelled for session ${activeSessionId}`);
+          break;
+        }
+        // Determine if this should be a search or browse action based on ratio
+        const isSearch = Math.random() < planParams.searchBrowseRatio;
+        
+        const actions = isSearch ? 
+          [
+            { name: 'search', weight: 70 },
+            { name: 'watch_video', weight: 30 }
+          ] : 
+          [
+            { name: 'browse_recommendations', weight: 40 },
+            { name: 'watch_video', weight: 30 },
+            { name: 'scroll', weight: 20 },
+            { name: 'random_movement', weight: 10 }
+          ];
+        
+        const totalWeight = actions.reduce((sum, action) => sum + action.weight, 0);
+        let randomValue = Math.random() * totalWeight;
+        let selectedAction = null;
+        
+        for (const action of actions) {
+          randomValue -= action.weight;
+          if (randomValue <= 0) {
+            selectedAction = action;
+            break;
+          }
+        }
+        
+        try {
+          if (selectedAction.name === 'search') {
+            const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+            
+            await robustGoto(page, 'https://www.youtube.com', 60000, 'YouTube search');
+            
+            await page.waitForSelector('input#search, input[name="search_query"]', { timeout: 5000 });
+            await page.click('input#search, input[name="search_query"]');
+            await page.type('input#search, input[name="search_query"]', searchQuery.query);
+            await page.keyboard.press('Enter');
+            await page.waitForNavigation({ waitUntil: 'networkidle2' });
+            
+            logSessionAction(
+              activeSessionId, 
+              'search', 
+              page.url(), 
+              `Searched YouTube for "${searchQuery.query}" (Category: ${searchQuery.category || 'random'}`
+            );
+            
+            for (let i = 0; i < 3; i++) {
+              await safeScroll(page);
+              await randomDelay(1000, 3000);
+            }
+            
+          } else if (selectedAction.name === 'watch_video') {
+            if (!page.url().includes('youtube.com/results') && !page.url().includes('youtube.com/watch')) {
+              const searchQuery = getRandomSearchQuery(searchCategory, customSearchTerms);
+              
+              await robustGoto(page, `https://www.youtube.com/results?search_query=${encodeURIComponent(searchQuery.query)}`, 60000, 'YouTube video search');
+              logSessionAction(
+                activeSessionId, 
+                'search', 
+                page.url(), 
+                `Searched YouTube for "${searchQuery.query}" (Category: ${searchQuery.category || 'random'}`
+              );
+            }
+            
+            const videoSelectors = [
+              'a#video-title',
+              'a.ytd-video-renderer',
+              'a.ytd-grid-video-renderer'
+            ];
+            
+            let clicked = false;
+            for (const selector of videoSelectors) {
+              if (clicked) break;
+              
+              try {
+                await page.waitForSelector(selector, { timeout: 5000 });
+                const videos = await page.$$(selector);
+                
+                if (videos.length > 0) {
+                  const randomIndex = Math.floor(Math.random() * videos.length);
+                  
+                  const videoTitle = await page.evaluate(el => el.textContent.trim(), videos[randomIndex])
+                    .catch(() => 'Unknown Video');
+                  
+                  await videos[randomIndex].click();
+                  await page.waitForNavigation({ waitUntil: 'networkidle2' });
+                  
+                  logSessionAction(activeSessionId, 'watch_video', page.url(), `Watching YouTube video: "${videoTitle}"`);
+                  
+                  const watchTime = Math.floor(Math.random() * 40) + 20;
+                  
+                  for (let i = 0; i < Math.floor(watchTime / 10); i++) {
+                    await randomDelay(8000, 12000);
+                    
+                    const interactions = ['play_pause', 'volume', 'scroll'];
+                    const interaction = interactions[Math.floor(Math.random() * interactions.length)];
+                    
+                    if (interaction === 'play_pause') {
+                      await page.keyboard.press('k');
+                      await randomDelay(2000, 4000);
+                      await page.keyboard.press('k');
+                      logSessionAction(activeSessionId, 'video_interaction', page.url(), 'Paused and resumed video');
+                    } else if (interaction === 'volume') {
+                      await page.keyboard.press('m');
+                      await randomDelay(1000, 2000);
+                      await page.keyboard.press('m');
+                      logSessionAction(activeSessionId, 'video_interaction', page.url(), 'Muted and unmuted video');
+                    } else if (interaction === 'scroll') {
+                      await safeScroll(page);
+                      logSessionAction(activeSessionId, 'scroll', page.url(), 'Scrolled down to see video comments');
+                    }
+                  }
+                  
+                  clicked = true;
+                }
+              } catch (error) {
+                logger.warn(`Failed to click video with selector ${selector}: ${error.message}`);
+              }
+            }
+            
+            if (!clicked) {
+              logger.warn('Could not find or click any videos, navigating back to YouTube home');
+              await robustGoto(page, 'https://www.youtube.com', 60000, 'YouTube home');
+            }
+            
+          } else if (selectedAction.name === 'browse_recommendations') {
+            await robustGoto(page, 'https://www.youtube.com', 60000, 'YouTube recommendations');
+            logSessionAction(activeSessionId, 'browse_recommendations', page.url(), 'Browsing YouTube recommendations');
+            
+            for (let i = 0; i < 5; i++) {
+              await safeScroll(page);
+              await randomDelay(1000, 3000);
+            }
+            
+          } else if (selectedAction.name === 'scroll') {
+            const scrollAmount = Math.floor(planParams.scrollDepth * 1000); // Convert to pixels
+            for (let i = 0; i < 5; i++) {
+              await safeScroll(page, scrollAmount);
+              await randomDelay(planParams.actionDelay.min, planParams.actionDelay.max);
+            }
+            
+            logSessionAction(activeSessionId, 'scroll', page.url(), 'Scrolled down the YouTube page');
+          } else if (selectedAction.name === 'random_movement') {
+            for (let i = 0; i < 10; i++) {
+              await randomMouseMovement(page);
+              await randomDelay(planParams.actionDelay.min / 2, planParams.actionDelay.max / 2);
+            }
+          }
+          
+          // Check for additional interactions based on plan's chance
+          if (Math.random() < planParams.additionalInteractionChance) {
+            await randomMouseMovement(page);
+            await randomDelay(planParams.actionDelay.min / 2, planParams.actionDelay.max / 2);
+          }
+          
+          await randomDelay(planParams.actionDelay.min, planParams.actionDelay.max);
+          
+        } catch (error) {
+          logger.error(`Error during YouTube browsing action: ${error.message}`);
+          logSessionAction(activeSessionId, 'error', page.url(), `Error: ${error.message}`);
+          
+          consecutiveFailures++;
+          if (consecutiveFailures >= 3) {
+            logger.warn('Too many consecutive failures, attempting recovery');
+            await robustGoto(page, 'https://www.youtube.com', 60000, 'YouTube home');
+            consecutiveFailures = 0;
+          }
+        }
+      }
+      
+      // Add burst pause based on plan
+      await randomDelay(planParams.burstPauseTime.min, planParams.burstPauseTime.max);
+    }
+    
+    const actualDurationMins = (Date.now() - startTime) / (60 * 1000);
+    
+    return {
+      success: true,
+      site: 'youtube',
+      duration_mins: actualDurationMins,
+      sites_visited: Array.from(sitesVisited),
+      actions_count: sessionActions.length,
+      actions_log: sessionActions
+    };
+    
+  } catch (error) {
+    logger.error(`Error in YouTube browsing session: ${error.message}`);
+    
+    return {
+      success: false,
+      site: 'youtube',
+      error: error.message,
+      duration_mins: (Date.now() - startTime) / (60 * 1000),
+      sites_visited: Array.from(sitesVisited),
+      actions_count: sessionActions.length,
+      actions_log: sessionActions
+    };
+  }
+}
+
+/**
+ * Start a warming session
+ * @param {string} profileId AdsPower profile ID
+ * @param {number} durationMinutes Session duration in minutes
+ * @param {string} plan Warming plan name
+ * @param {string} region Region code for the session
+ * @param {boolean} headless Whether to run in headless mode (ignored, always true)
+ * @param {number} debugPort Debug port for existing browser
+ * @param {string} userId User ID for the session
+ * @param {Array} selectedSites Array of site names to visit (e.g. ['amazon', 'ebay'])
+ * @param {string} searchCategory Optional search category to use across sites
+ * @param {string} customSearchTerms Custom search terms (optional)
+ * @returns {Promise<Object>} Result of warming session
+ */
+async function startWarmingSession(
+  profileId, 
+  durationMinutes = 15, 
+  plan = 'standard', 
+  region = null,
+  headless = false,
+  debugPort = null, 
+  userId = 'anonymous',
+  selectedSites = ['amazon'],
+  searchCategory = null,
+  customSearchTerms = null
+) {
+  logger.info(`[startWarmingSession] Starting session for profileId=${profileId}, duration=${durationMinutes}, plan=${plan}, region=${region}, headless=${headless}, userId=${userId}, sites=${JSON.stringify(selectedSites)}, category=${searchCategory}`);
+  headless = true;
+  
+  // Get plan parameters
+  const planParameters = {
+    'basic': {
+      actionsPerIteration: { min: 3, max: 5 },
+      scrollDepth: 0.3,
+      additionalInteractionChance: 0.2,
+      actionDelay: { min: 3000, max: 5000 },
+      searchBrowseRatio: 0.7,
+      burstPauseTime: { min: 10000, max: 20000 }
+    },
+    'standard': {
+      actionsPerIteration: { min: 5, max: 8 },
+      scrollDepth: 0.6,
+      additionalInteractionChance: 0.4,
+      actionDelay: { min: 2000, max: 4000 },
+      searchBrowseRatio: 0.5,
+      burstPauseTime: { min: 5000, max: 10000 }
+    },
+    'advanced': {
+      actionsPerIteration: { min: 8, max: 12 },
+      scrollDepth: 0.9,
+      additionalInteractionChance: 0.7,
+      actionDelay: { min: 1000, max: 3000 },
+      searchBrowseRatio: 0.3,
+      burstPauseTime: { min: 2000, max: 5000 }
+    }
+  };
+
+  const selectedPlanParams = planParameters[plan] || planParameters['standard'];
+  
+  logger.info(`Browser Controller: Starting warming session for profile ${profileId} with plan ${plan}`);
+  logger.info(`Browser Controller: Debug port: ${debugPort} (type: ${typeof debugPort})`);
+  logger.info(`Browser Controller: User ID: ${userId}`);
+  logger.info(`Browser Controller: Region parameter: ${region || 'not set'}`);
+  logger.info(`Browser Controller: Headless mode: ${headless} (forced to true)`);
+  logger.info(`Browser Controller: Selected sites: ${JSON.stringify(selectedSites)}`);
+  logger.info(`Browser Controller: Search category: ${searchCategory || 'random'}`);
+  logger.info(`Browser Controller: Plan parameters:`, selectedPlanParams);
+  
+  let browser = null;
+  let page = null;
+  let activeSessionId = null;
+  let startTime = Date.now();
+  let endTime = startTime + (durationMinutes * 60 * 1000);
+  
+  try {
+    let profileData = { region: null, sites: [] };
+    const profile = databaseService.getProfile(profileId);
+    
+    if (profile) {
+      profileData = {
+        ...profile,
+      };
+      
+      region = profile.region;
+      if (!region) {
+        logger.error(`[startWarmingSession] Profile region is required but not set for profileId=${profileId}`);
+        throw new Error('Profile region is required but not set');
+      }
+    } else {
+      logger.error(`[startWarmingSession] Profile ${profileId} not found in database and region is required`);
+      throw new Error(`Profile ${profileId} not found in database and region is required`);
+    }
+    
+    // Create active session
+    const sessionId = uuidv4();
+    logger.info(`[startWarmingSession] customSearchTerms received:`, customSearchTerms);
+    databaseService.db.prepare(`
+      INSERT INTO sessions (
+        session_id, profile_id, user_id, plan, start_time, 
+        max_duration_mins, status, headless, search_category, custom_search_terms, sites
+      ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?)
+    `).run(
+      sessionId,
+      profileId,
+      userId,
+      plan,
+      durationMinutes,
+      'active',
+      headless ? 1 : 0,
+      searchCategory,
+      customSearchTerms,
+      JSON.stringify(selectedSites)
+    );
+    activeSessionId = sessionId;
+
+    // Log before notifying renderer
+    logger.info('[browserController] About to call global.sendWarmingSessionStarted', {
+      profileId,
+      sessionId: activeSessionId,
+      plan,
+      region,
+      userId,
+      sites: selectedSites,
+      searchCategory,
+      customSearchTerms
+    });
+    // --- Notify renderer that a warming session has started (for UI bubble, etc) ---
+    if (typeof global.sendWarmingSessionStarted === 'function') {
+      global.sendWarmingSessionStarted({
+        profileId,
+        sessionId: activeSessionId,
+        plan,
+        region,
+        userId,
+        sites: selectedSites,
+        searchCategory,
+        customSearchTerms
+      });
+    }
+    
+    // Setup cancellation token for this session
+    if (activeSessionId) {
+      if (!sessionCancelTokens[activeSessionId]) {
+        sessionCancelTokens[activeSessionId] = { cancelled: false };
+      }
+    }
+    const cancelToken = activeSessionId ? sessionCancelTokens[activeSessionId] : { cancelled: false };
+    
+    // Start a timer to check for time-based cancellation
+    const timeCheckInterval = setInterval(() => {
+      if (Date.now() >= endTime) {
+        logger.info(`[startWarmingSession] Session time limit reached for session ${activeSessionId} (Plan: ${plan})`);
+        if (cancelToken) {
+          cancelToken.cancelled = true;
+        }
+        clearInterval(timeCheckInterval);
+      }
+    }, 1000); // Check every second
+    
+    let browserResult;
+    
+    if (debugPort) {
+      logger.info(`[startWarmingSession] Connecting to existing browser with debug port ${debugPort} (Plan: ${plan})`);
+      browserResult = await connectToExistingBrowser(debugPort);
+    } else {
+      logger.info(`[startWarmingSession] Starting new browser for profile ${profileId} in headless mode (Plan: ${plan})`);
+      browserResult = await startBrowser(profileId, true); // Always use headless mode
+    }
+    
+    if (!browserResult.success) {
+      logger.error(`[startWarmingSession] Failed to initialize browser: ${browserResult.message}`);
+      logSessionAction(
+        activeSessionId,
+        'browser_failed_to_start',
+        'browser',
+        `Failed to initialize browser: ${browserResult.message}`,
+        false
+      );
+      databaseService.db.prepare(`
+        UPDATE sessions 
+        SET end_time = CURRENT_TIMESTAMP, 
+            duration_mins = ?, 
+            status = ?, 
+            error = ? 
+        WHERE session_id = ?
+      `).run(
+        0,
+        'failed',
+        browserResult.message,
+        activeSessionId
+      );
+      return {
+        success: false,
+        message: browserResult.message,
+        active_session_id: activeSessionId
+      };
+    }
+    
+    browser = browserResult.browser;
+    page = browserResult.page;
+    await wait(2000); // Wait 2 seconds after browser/page is ready
+    
+    // --- Add browser disconnect event handler ---
+    if (browser) {
+      browser.on('disconnected', () => {
+        logger.error(`[startWarmingSession] Browser disconnected unexpectedly for profile ${profileId}, session ${activeSessionId}`);
+        logSessionAction(
+          activeSessionId,
+          'browser_disconnected',
+          'browser',
+          `Browser disconnected unexpectedly for profile ${profileId}, session ${activeSessionId}`,
+          false
+        );
+      });
+    }
+    
+    if (!selectedSites || selectedSites.length === 0) {
+      selectedSites = ['amazon'];
+    }
+    
+    const siteCount = selectedSites.length;
+    const timePerSite = Math.max(1, Math.floor(durationMinutes / siteCount));
+    
+    const results = {
+      success: true,
+      actions: []
+    };
+    
+    // Check and perform initial cookies bootstrap if needed
+    if (!profile.initial_cookies) {
+      logger.info(`[startWarmingSession] Performing initial cookies bootstrap for region: ${region} (Plan: ${plan})`);
+      // Create a separate cancellation token for initial cookies that won't be affected by time limit
+      const initialCookiesToken = { cancelled: false };
+      // Temporarily pause the time check interval during initial cookies
+      clearInterval(timeCheckInterval);
+      const initialSitesResult = await visitInitialSitesForRegion(page, region, activeSessionId, plan, initialCookiesToken);
+      // After initial cookies complete, adjust the time limit to start from now
+      startTime = Date.now();
+      endTime = startTime + (durationMinutes * 60 * 1000);
+      logger.info(`[startWarmingSession] Initial cookies process completed at ${new Date(startTime).toISOString()}, starting regular session for ${durationMinutes} minutes`);
+      // Restart the time check interval with the new time limit
+      const newTimeCheckInterval = setInterval(() => {
+        if (Date.now() >= endTime) {
+          logger.info(`[startWarmingSession] Session time limit reached for session ${activeSessionId} (Plan: ${plan})`);
+          if (cancelToken) {
+            cancelToken.cancelled = true;
+          }
+          clearInterval(newTimeCheckInterval);
+        }
+      }, 1000);
+      if (initialSitesResult && initialSitesResult.cancelled) {
+        logger.info(`[startWarmingSession] Initial cookies process was cancelled for session ${activeSessionId} (Plan: ${plan})`);
+        databaseService.db.prepare(`
+          UPDATE sessions 
+          SET status = 'cancelled', end_time = CURRENT_TIMESTAMP
+          WHERE session_id = ?
+        `).run(activeSessionId);
+        return {
+          success: false,
+          message: 'Initial cookies process was cancelled',
+          active_session_id: activeSessionId
+        };
+      }
+      // Mark initial_cookies as true in DB only if not cancelled
+      profile.initial_cookies = true;
+      databaseService.saveProfile(profile);
+      logger.info(`[startWarmingSession] Initial cookies bootstrap complete, marked initial_cookies=true for profile ${profileId} (Plan: ${plan})`);
+    }
+    
+    for (const site of selectedSites) {
+      // Check if session has been cancelled before starting each site
+      if (cancelToken && cancelToken.cancelled) {
+        logger.info(`[startWarmingSession] Session cancelled before starting site ${site} (Plan: ${plan})`);
+        break;
+      }
+      
+      try {
+        logger.info(`[startWarmingSession] Starting site: ${site} (Plan: ${plan})`);
+        let siteResult;
+        
+        switch (site.toLowerCase()) {
+          case 'amazon':
+            siteResult = await browseAmazon(
+              page,
+              profileId,
+              activeSessionId,
+              timePerSite,
+              timePerSite,
+              region,
+              searchCategory,
+              customSearchTerms,
+              cancelToken,
+              selectedPlanParams
+            );
+            break;
+            
+          case 'ebay':
+            siteResult = await browseEbay(
+              page,
+              profileId,
+              activeSessionId,
+              timePerSite,
+              timePerSite,
+              region,
+              searchCategory,
+              customSearchTerms,
+              cancelToken,
+              selectedPlanParams
+            );
+            break;
+            
+          case 'google':
+            siteResult = await browseGoogle(
+              page,
+              profileId,
+              activeSessionId,
+              timePerSite,
+              timePerSite,
+              region,
+              searchCategory,
+              customSearchTerms,
+              cancelToken,
+              selectedPlanParams
+            );
+            break;
+            
+          case 'youtube':
+            siteResult = await browseYouTube(
+              page,
+              profileId,
+              activeSessionId,
+              timePerSite,
+              timePerSite,
+              region,
+              searchCategory,
+              customSearchTerms,
+              cancelToken,
+              selectedPlanParams
+            );
+            break;
+            
+          default:
+            continue;
+        }
+        
+        if (siteResult) {
+          logger.info(`[startWarmingSession] Site result for ${site}: success=${siteResult.success} (Plan: ${plan})`);
+          if (!siteResult.success) {
+            logger.error(`[startWarmingSession] Site ${site} failed: ${siteResult.error || 'Unknown error'} (Plan: ${plan})`);
+            logSessionAction(
+              activeSessionId,
+              'site_failed',
+              site,
+              `Site failed: ${siteResult.error || 'Unknown error'}`,
+              false
+            );
+            if (!siteResult.success) {
+              sendNotificationToRenderer({
+                type: 'error',
+                title: `Site ${site} failed`,
+                message: `Site ${site} failed for profile ${profileId}: ${siteResult.error || 'Unknown error'}`,
+                metadata: { profileId, plan, site, error: siteResult.error }
+              });
+            }
+          }
+          results.actions.push(siteResult);
+          // Only set success to false for serious errors
+          if (!siteResult.success && isSeriousError(siteResult.error)) {
+            results.success = false;
+            if (!siteResult.success) {
+              sendNotificationToRenderer({
+                type: 'error',
+                title: `Serious error on ${site}`,
+                message: `Serious error on site ${site} for profile ${profileId}: ${siteResult.error}`,
+                metadata: { profileId, plan, site, error: siteResult.error }
+              });
+            }
+          }
+        }
+        
+      } catch (error) {
+        logger.error(`[startWarmingSession] Error browsing ${site}: ${error.message}`);
+        logSessionAction(
+          activeSessionId,
+          'site_handler_error',
+          site,
+          `Error in site handler: ${error.message}`,
+          false
+        );
+        if (error.message && error.message.toLowerCase().includes('browser disconnected')) {
+          logger.error(`[startWarmingSession] Browser disconnected during ${site} for session ${activeSessionId}`);
+          logSessionAction(
+            activeSessionId,
+            'browser_disconnected',
+            site,
+            `Browser disconnected during ${site} for session ${activeSessionId}`,
+            false
+          );
+        }
+        results.actions.push({
+          site,
+          success: false,
+          error: error.message
+        });
+        // Only set success to false for serious errors
+        if (isSeriousError(error.message)) {
+          results.success = false;
+        }
+      }
+    }
+    
+    // Clear the time check interval
+    clearInterval(timeCheckInterval);
+    
+    const actualDuration = (Date.now() - startTime) / (60 * 1000);
+    const finalStatus = cancelToken && cancelToken.cancelled ? 'cancelled' : (results.success ? 'completed' : 'failed');
+    
+    databaseService.db.prepare(`
+      UPDATE sessions 
+      SET end_time = CURRENT_TIMESTAMP, 
+          duration_mins = ?, 
+          status = ?, 
+          error = ?,
+          custom_search_terms = ?
+      WHERE session_id = ?
+    `).run(
+      actualDuration,
+      finalStatus,
+      null,
+      customSearchTerms,
+      activeSessionId
+    );
+    
+    logger.info(`[startWarmingSession] Session complete for profileId=${profileId}, duration=${actualDuration}, status=${finalStatus} (Plan: ${plan})`);
+    
+    // Send a single consolidated notification at the end of the session
+    if (finalStatus === 'cancelled') {
+      sendNotificationToRenderer({
+        type: 'info',
+        title: 'Warming Session Completed',
+        message: `Session for profile ${profileId} was ended.`,
+        metadata: { profileId, plan, sites: selectedSites }
+      });
+    } else if (finalStatus === 'completed') {
+      sendNotificationToRenderer({
+        type: 'info',
+        title: 'Warming Session Completed',
+        message: `Session for profile ${profileId} completed successfully.`,
+        metadata: { profileId, plan, sites: selectedSites }
+      });
+    } else if (finalStatus === 'failed') {
+      sendNotificationToRenderer({
+        type: 'error',
+        title: 'Warming Session Failed',
+        message: `Session for profile ${profileId} failed due to serious error(s).`,
+        metadata: { profileId, plan, sites: selectedSites }
+      });
+    }
+    
+    return {
+      success: results.success,
+      message: results.success ? 'Warming session completed successfully' : 'Warming session completed with serious errors',
+      active_session_id: activeSessionId,
+      duration: actualDuration,
+      actions: results.actions,
+      region_used: region,
+      headless: headless,
+      sites_visited: selectedSites,
+      search_category: searchCategory
+    };
+    
+  } catch (error) {
+    logger.error(`[startWarmingSession] Error in warming session: ${error.message}`);
+    logger.error(error.stack);
+    logSessionAction(
+      activeSessionId,
+      'session_error',
+      'session',
+      `Error in warming session: ${error.message}`,
+      false
+    );
+    if (error.message && error.message.toLowerCase().includes('browser disconnected')) {
+      logger.error(`[startWarmingSession] Browser disconnected for session ${activeSessionId}`);
+      logSessionAction(
+        activeSessionId,
+        'browser_disconnected',
+        'session',
+        `Browser disconnected for session ${activeSessionId}`,
+        false
+      );
+    }
+    
+    // Attempt to complete the session if it was created
+    if (activeSessionId) {
+      const actualDuration = (Date.now() - startTime) / (60 * 1000);
+      databaseService.db.prepare(`
+        UPDATE sessions 
+        SET end_time = CURRENT_TIMESTAMP, 
+            duration_mins = ?, 
+            status = ?, 
+            error = ? 
+        WHERE session_id = ?
+      `).run(
+        actualDuration,
+        'failed',
+        error.message,
+        activeSessionId
+      );
+    }
+    
+    return {
+      success: false,
+      message: `Error in warming session: ${error.message}`,
+      active_session_id: activeSessionId
+    };
+  } finally {
+    // Clear the time check interval if it exists
+    if (timeCheckInterval) {
+      clearInterval(timeCheckInterval);
+    }
+    
+    if (browser) {
+      try {
+        await browser.disconnect();
+        logger.info(`[startWarmingSession] Disconnected Puppeteer from browser for profile ${profileId} (Plan: ${plan})`);
+      } catch (disconnectError) {
+        logger.error(`[startWarmingSession] Error disconnecting from browser: ${disconnectError.message}`);
+      }
+    }
+    
+    try {
+      logger.info(`[startWarmingSession] Stopping AdsPower browser for profile ${profileId} (Plan: ${plan})`);
+      await stopBrowserWithRetry(profileId);
+      logger.info(`[startWarmingSession] Successfully stopped AdsPower browser for profile ${profileId} (Plan: ${plan})`);
+    } catch (closeError) {
+      logger.error(`[startWarmingSession] Error stopping AdsPower browser: ${closeError.message}`);
+    }
+  }
+}
+
+/**
+ * Determine if an error is serious enough to fail the entire session
+ * @param {string} errorMessage The error message to check
+ * @returns {boolean} True if the error is serious, false otherwise
+ */
+function isSeriousError(errorMessage) {
+  if (!errorMessage) return false;
+  // List of serious error patterns
+  const seriousErrorPatterns = [
+    'browser failed to start',
+    'browser crashed',
+    'connection lost',
+    'timeout exceeded',
+    'profile not found',
+    'authentication failed',
+    'invalid profile',
+    'browser disconnected',
+    'network error',
+    'proxy error',
+    'ERR_CONNECTION_CLOSED',
+    'Navigation timeout',
+    'ERR_CONNECTION_TIMED_OUT',
+    'ERR_NAME_NOT_RESOLVED'
+  ];
+  for (const pattern of seriousErrorPatterns) {
+    if (errorMessage.toLowerCase().includes(pattern.toLowerCase())) {
+      logger.warn(`[isSeriousError] Matched pattern: "${pattern}" in error: "${errorMessage}"`);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Helper function to log session actions
+function logSessionAction(sessionId, actionType, site, details, success = true) {
+  if (!sessionId) return;
+  
+  try {
+    // Get the plan from the session record
+    const session = databaseService.db.prepare('SELECT plan FROM sessions WHERE session_id = ?').get(sessionId);
+    const planName = session?.plan || 'standard';
+    
+    // Add plan name to details if it's a string
+    let enhancedDetails = details;
+    if (typeof details === 'string') {
+      enhancedDetails = `[${planName}] ${details}`;
+    } else if (typeof details === 'object') {
+      enhancedDetails = { ...details, plan: planName };
+    }
+    
+    databaseService.db.prepare(`
+      INSERT INTO session_actions (
+        action_id, session_id, action_type, site, details, success, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(
+      uuidv4(),
+      sessionId,
+      actionType,
+      site,
+      enhancedDetails,
+      success ? 1 : 0
+    );
+  } catch (error) {
+    logger.error('Error logging session action:', error);
+  }
+}
+
+// --- Cancellation flag system ---
+const sessionCancelTokens = {};
+
+function setSessionCancelled(sessionId) {
+  if (sessionCancelTokens[sessionId]) {
+    sessionCancelTokens[sessionId].cancelled = true;
+  }
+}
+
+async function visitInitialSitesForRegion(page, region, activeSessionId = null, plan = 'standard', cancelToken = { cancelled: false }) {
+  if (!page) {
+    logger.error('[visitInitialSitesForRegion] Page object is undefined');
+    return { cancelled: false, error: 'Page object is undefined' };
+  }
+
+  // Get the browser instance from the page
+  let browser;
+  try {
+    browser = page.browser();
+    if (!browser) {
+      logger.error('[visitInitialSitesForRegion] Could not get browser instance from page');
+      return { cancelled: false, error: 'Could not get browser instance from page' };
+    }
+  } catch (error) {
+    logger.error(`[visitInitialSitesForRegion] Error getting browser instance: ${error.message}`);
+    return { cancelled: false, error: `Error getting browser instance: ${error.message}` };
+  }
+
+  const sites = REGION_INITIAL_SITES[region] || [];
+  const totalSites = sites.length;
+  logger.info(`[visitInitialSitesForRegion] Starting initial site visits for region ${region} with ${totalSites} sites (Plan: ${plan})`);
+
+  let wasCancelled = false;
+  for (let siteIndex = 0; siteIndex < sites.length; siteIndex++) {
+    // Check for cancellation before each site
+    if (cancelToken.cancelled) {
+      logger.info(`[visitInitialSitesForRegion] Cancelled for session ${activeSessionId} at site ${siteIndex + 1}/${totalSites}`);
+      logSessionAction(
+        activeSessionId,
+        'cancelled_initial_sites',
+        'initial_sites',
+        `Initial site visits cancelled at site ${siteIndex + 1}/${totalSites}`
+      );
+      wasCancelled = true;
+      break;
+    }
+    const site = sites[siteIndex];
+    let retryCount = 0;
+    const maxRetries = 2;
+    const baseTimeout = 60000; // Increased to 60 seconds base timeout
+    
+    while (retryCount <= maxRetries) {
+      try {
+        logger.info(`[visitInitialSitesForRegion] Visiting site: ${site} (${siteIndex + 1}/${totalSites}) (Attempt ${retryCount + 1}/${maxRetries + 1})`);
+        logSessionAction(
+          activeSessionId,
+          'visit_initial_site',
+          site,
+          `Visiting initial site for region ${region} (${siteIndex + 1}/${totalSites}) (Attempt ${retryCount + 1})`
+        );
+        
+        // Close all tabs except the first one
+        const pages = await browser.pages();
+        for (let i = 1; i < pages.length; i++) {
+          await pages[i].close();
+        }
+        
+        // Ensure we're using the main tab
+        const mainPage = pages[0];
+        if (!mainPage) {
+          throw new Error('No main page available');
+        }
+        
+        // Calculate timeout based on retry attempt
+        const timeout = baseTimeout * (retryCount + 1);
+        
+        // First try with networkidle2
+        try {
+          await mainPage.goto(site, { 
+            waitUntil: 'networkidle2', 
+            timeout: timeout 
+          });
+        } catch (navError) {
+          // If networkidle2 fails, try with domcontentloaded
+          logger.warn(`[visitInitialSitesForRegion] networkidle2 timeout, trying domcontentloaded for ${site} (${siteIndex + 1}/${totalSites})`);
+          await mainPage.goto(site, { 
+            waitUntil: 'domcontentloaded', 
+            timeout: timeout 
+          });
+        }
+        
+        // Wait for initial page load (shorter)
+        await randomDelay(1000, 2000);
+        
+        // Handle cookie consent with retries and minimal waiting
+        let cookieHandled = false;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          // Wait a bit before checking for cookie consent (shorter)
+          await randomDelay(500, 1200);
+          
+          cookieHandled = await handleCookieConsent(mainPage, region);
+          if (cookieHandled) {
+            logger.info(`[visitInitialSitesForRegion] Handled cookie consent for ${site} (${siteIndex + 1}/${totalSites}) on attempt ${attempt + 1} (Plan: ${plan})`);
+            logSessionAction(
+              activeSessionId,
+              'cookie_consent',
+              site,
+              `Handled cookie consent for ${site} (${siteIndex + 1}/${totalSites})`
+            );
+            // Wait after handling cookie consent (shorter)
+            await randomDelay(500, 1200);
+            break;
+          }
+          // If cookie consent wasn't handled, wait before retrying (shorter)
+          if (!cookieHandled) {
+            await randomDelay(500, 1200);
+          }
+        }
+        
+        // Wait before starting to scroll (shorter)
+        await randomDelay(500, 1200);
+        
+        // Smooth scroll to the bottom of the page
+        await mainPage.evaluate(async () => {
+          await new Promise(resolve => {
+            let totalHeight = 0;
+            const distance = 100;
+            const timer = setInterval(() => {
+              window.scrollBy(0, distance);
+              totalHeight += distance;
+              if (totalHeight >= document.body.scrollHeight - window.innerHeight) {
+                clearInterval(timer);
+                resolve();
+              }
+            }, 30);
+          });
+        });
+        await randomDelay(800, 1500);
+        
+        // Click a random link that opens in the same tab
+        const links = await mainPage.$$('a[target="_self"], a:not([target])');
+        if (links.length > 0) {
+          const randomLink = links[Math.floor(Math.random() * links.length)];
+          try {
+            // Wait before clicking (shorter)
+            await randomDelay(500, 1200);
+            
+            await Promise.all([
+              mainPage.waitForNavigation({ 
+                waitUntil: 'domcontentloaded', 
+                timeout: 20000 
+              }).catch(() => {}),
+              randomLink.click()
+            ]);
+            // Wait after navigation (shorter)
+            await randomDelay(800, 1500);
+          } catch (clickError) {
+            // Suppress specific non-actionable warning
+            if (!/not clickable|not an HTMLElement/i.test(clickError.message)) {
+              logger.warn(`[visitInitialSitesForRegion] Failed to click link on ${site} (${siteIndex + 1}/${totalSites}): ${clickError.message}`);
+            }
+          }
+        }
+        
+        logger.info(`[visitInitialSitesForRegion] Successfully visited ${site} (${siteIndex + 1}/${totalSites}) and handled + scrolling (Plan: ${plan})`);
+        logSessionAction(
+          activeSessionId,
+          'complete_initial_site',
+          site,
+          `Completed initial site visit for ${site} (${siteIndex + 1}/${totalSites})`
+        );
+        // Wait before moving to next site (shorter)
+        await randomDelay(800, 1500);
+        
+        // If we get here, the visit was successful, so break the retry loop
+        break;
+        
+      } catch (err) {
+        retryCount++;
+        logger.warn(`[visitInitialSitesForRegion] Failed to visit initial site: ${site} (${siteIndex + 1}/${totalSites}) (${err.message}) - Attempt ${retryCount}/${maxRetries + 1}`);
+        logSessionAction(
+          activeSessionId,
+          'error_initial_site',
+          site,
+          `Failed to visit initial site: ${err.message} (${siteIndex + 1}/${totalSites}) (Attempt ${retryCount})`,
+          false
+        );
+        
+        if (retryCount <= maxRetries) {
+          // Wait longer between retries
+          await randomDelay(2000, 4000);
+        } else {
+          logger.error(`[visitInitialSitesForRegion] All retry attempts failed for ${site} (${siteIndex + 1}/${totalSites})`);
+        }
+      }
+    }
+  }
+  
+  logger.info(`[visitInitialSitesForRegion] Completed all initial site visits for region ${region} (${totalSites} sites) (Plan: ${plan})`);
+  logSessionAction(
+    activeSessionId,
+    'complete_initial_sites',
+    'initial_sites',
+    `Completed all initial site visits for region ${region} (${totalSites} sites)`
+  );
+  // Clean up cancel token
+  if (activeSessionId) {
+    delete sessionCancelTokens[activeSessionId];
+  }
+  return { cancelled: wasCancelled };
+}
+
+// Helper for a short wait
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Robust stop browser with retry logic
+ * @param {string} profileId
+ * @param {number} maxRetries
+ * @returns {Promise<Object>}
+ */
+async function stopBrowserWithRetry(profileId, maxRetries = 3) {
+  let attempt = 0;
+  let lastError = null;
+  while (attempt < maxRetries) {
+    try {
+      const result = await stopBrowser(profileId, true); // true = internal call
+      if (result.success) {
+        logger.info(`[stopBrowserWithRetry] Successfully stopped browser for profile ${profileId} on attempt ${attempt + 1}`);
+        return result;
+      } else {
+        logger.warn(`[stopBrowserWithRetry] Attempt ${attempt + 1} failed: ${result.message}`);
+        lastError = result.message;
+      }
+    } catch (err) {
+      logger.error(`[stopBrowserWithRetry] Exception on attempt ${attempt + 1}: ${err.message}`);
+      lastError = err.message;
+    }
+    await wait(1000 * (attempt + 1)); // Exponential backoff
+    attempt++;
+  }
+  return { success: false, message: `Failed to stop browser after ${maxRetries} attempts: ${lastError}` };
+}
+
+module.exports = {
+  startWarmingSession,
+  startBrowser,
+  stopBrowser,
+  connectToExistingBrowser,
+  browseAmazon,
+  browseEbay,
+  browseGoogle,
+  browseYouTube,
+  verifyAdsPowerConnection,
+  safeClick,
+  safeScroll,
+  randomMouseMovement,
+  getRandomSearchQuery,
+  SEARCH_CATEGORIES,
+  setSessionCancelled // <-- export the cancel function
+};
